@@ -605,7 +605,7 @@ function HomeTab({ orders, onJump }) {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
           {sortedTodos.map((t, i) => (
-            <div key={i} className={`bg-[#2b2b2b] rounded-xl border ${t.minRem <= 3 && t.minRem > 0 ? 'border-orange-500' : 'border-red-500'} p-5 shadow-lg`}>
+            <div key={i} className={`bg-[#2b2b2b] rounded-xl border ${t.minRem <= 3 && t.minRem > 0 ? 'border-orange-500' : 'border-red-500'} p-5 shadow-lg relative group`}>
               <div className="flex justify-between items-center mb-4 border-b border-gray-700 pb-3">
                 <span className={`font-bold text-lg ${t.minRem < 0 ? 'text-red-500' : 'text-orange-500'}`}>{t.minRem < 0 ? `🚨 已超期 ${Math.abs(t.minRem)} 天` : `⚠️ 最快 ${t.minRem} 天到期`}</span>
                 <span className="text-gray-400 text-sm">共 {t.devices.length} 台</span>
@@ -617,19 +617,19 @@ function HomeTab({ orders, onJump }) {
                   <span className="text-gray-400 w-12 pt-1">编号:</span>
                   <div className="flex-1 flex flex-col space-y-1.5">
                     {t.devices.map((d, di) => (
-                      <div key={di} className="flex justify-between items-center bg-[#1f1f1f] px-2 py-1.5 rounded border border-gray-800">
+                      <div key={di} className="flex items-center bg-[#1f1f1f] px-2 py-1.5 rounded border border-gray-800">
                         <span className={`font-bold ${d.remD <= 3 && d.remD >= 0 ? 'text-blue-400' : 'text-red-500'}`}>
                           {d.sn} {d.remD < 0 ? `(超${Math.abs(d.remD)}天)` : `(剩${d.remD}天)`}
                         </span>
-                        {/* 这里就是新增的定位跳转按钮 */}
-                        <button onClick={() => onJump(d.id)} className="bg-gray-700 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs flex items-center transition shadow">
-                          <Search size={12} className="mr-1"/>定位
-                        </button>
                       </div>
                     ))}
                   </div>
                 </div>
               </div>
+              {/* 极简右下角定位图标 */}
+              <button onClick={() => onJump(t.devices[0].id)} className="absolute bottom-4 right-4 text-white/30 group-hover:text-white transition-all bg-black/20 group-hover:bg-blue-600 p-2 rounded-full shadow-sm hover:scale-110">
+                <Search size={16} />
+              </button>
             </div>
           ))}
         </div>
