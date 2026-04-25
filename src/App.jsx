@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { ChevronDown, ChevronRight, Plus, Monitor, Trash2, CalendarDays, Phone, MapPin, User, Upload, CheckCircle, Search } from 'lucide-react';
+import { ChevronDown, ChevronRight, Plus, Monitor, Trash2, CalendarDays, Phone, MapPin, User, Upload, CheckCircle, Search, ChevronLeft } from 'lucide-react';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc, addDoc, writeBatch } from 'firebase/firestore';
@@ -52,6 +52,9 @@ export default function App() {
   const [errorMsg, setErrorMsg] = useState("");
   const [activeTab, setActiveTab] = useState('rental'); 
   const [allExpanded, setAllExpanded] = useState(false); 
+
+  // --- 新增：用于跨页面定位订单的 State ---
+  const [highlightedOrderId, setHighlightedOrderId] = useState(null);
 
   // --- 1. 身份验证 ---
   useEffect(() => {
@@ -110,6 +113,20 @@ export default function App() {
       unsubscribeComps();
     };
   }, [user, isCloudMode]);
+
+  // --- 新增：处理高亮订单的滚动对齐 ---
+  useEffect(() => {
+    if (activeTab === 'rental' && highlightedOrderId) {
+      const timer1 = setTimeout(() => {
+        const el = document.getElementById(`order-${highlightedOrderId}`);
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 300); // 留出一点时间让折叠面板展开
+      const timer2 = setTimeout(() => {
+        setHighlightedOrderId(null); // 4秒后自动取消高亮
+      }, 4000);
+      return () => { clearTimeout(timer1); clearTimeout(timer2); };
+    }
+  }, [activeTab, highlightedOrderId]);
 
   // --- 3. 数据导入 ---
   const handleImportData = (event) => {
@@ -411,13 +428,13 @@ export default function App() {
                 </div>
               ) : (
                 sortedCustomerEntries.map(([cid, data], idx) => (
-                  <CustomerGroup key={cid} cid={cid} data={data} idx={idx} forceExpandState={allExpanded} onUpdateCustomer={handleUpdateCustomer} onAddDevice={handleAddDevice} onDeleteCustomer={handleDeleteCustomer} onUpdateOrder={handleUpdateOrder} onDeleteOrder={handleDeleteOrder} />
+                  <CustomerGroup key={cid} cid={cid} data={data} idx={idx} forceExpandState={allExpanded} highlightedOrderId={highlightedOrderId} onUpdateCustomer={handleUpdateCustomer} onAddDevice={handleAddDevice} onDeleteCustomer={handleDeleteCustomer} onUpdateOrder={handleUpdateOrder} onDeleteOrder={handleDeleteOrder} />
                 ))
               )}
             </div>
           </>
         ) : activeTab === 'home' ? (
-          <HomeTab orders={orders} />
+          <HomeTab orders={orders} onJump={(id) => { setHighlightedOrderId(id); setActiveTab('rental'); }} />
         ) : activeTab === 'equipment' ? (
           <EquipmentTab computers={computers} orders={orders} isCloudMode={isCloudMode} user={user} db={db} appId={appId} />
         ) : activeTab === 'calendar' ? (
@@ -447,9 +464,20 @@ function KpiCard({ title, value, color = "text-white", className = "" }) {
   );
 }
 
-function CustomerGroup({ cid, data, forceExpandState, onUpdateCustomer, onAddDevice, onDeleteCustomer, onUpdateOrder, onDeleteOrder }) {
+// 修改点：加入了 highlightedOrderId 接收，智能展开客户组
+function CustomerGroup({ cid, data, forceExpandState, highlightedOrderId, onUpdateCustomer, onAddDevice, onDeleteCustomer, onUpdateOrder, onDeleteOrder }) {
   const [expanded, setExpanded] = useState(false); 
-  useEffect(() => { setExpanded(forceExpandState); }, [forceExpandState]);
+  
+  // 判断当前客户名下的订单是否包含刚才点击【定位】的那个高亮订单
+  const hasHighlighted = useMemo(() => data.orders.some(o => o.id === highlightedOrderId), [data.orders, highlightedOrderId]);
+
+  useEffect(() => { 
+    if (forceExpandState || hasHighlighted) {
+      setExpanded(true); 
+    } else if (!forceExpandState && !hasHighlighted) {
+      setExpanded(false);
+    }
+  }, [forceExpandState, hasHighlighted]);
 
   let activeCount = 0, tDaily = 0, tAcc = 0;
   const today = new Date();
@@ -500,7 +528,7 @@ function CustomerGroup({ cid, data, forceExpandState, onUpdateCustomer, onAddDev
               <div className="col-span-2">设备编号</div><div className="col-span-2">起租日期</div><div className="col-span-1 text-center">周期</div><div className="col-span-1 text-center">续租</div><div className="col-span-2">进度概览</div><div className="col-span-1 text-center">月租金</div><div className="col-span-1 text-center">日收益</div><div className="col-span-1 text-center">已收</div><div className="col-span-1 text-center">操作</div>
             </div>
             {sortedOrders.map(order => (
-              <OrderRow key={order.id} order={order} onUpdate={onUpdateOrder} onDelete={onDeleteOrder} />
+              <OrderRow key={order.id} order={order} isHighlighted={order.id === highlightedOrderId} onUpdate={onUpdateOrder} onDelete={onDeleteOrder} />
             ))}
           </div>
         </div>
@@ -509,7 +537,8 @@ function CustomerGroup({ cid, data, forceExpandState, onUpdateCustomer, onAddDev
   );
 }
 
-function OrderRow({ order, onUpdate, onDelete }) {
+// 修改点：加入了 isHighlighted 用于闪烁光圈
+function OrderRow({ order, onUpdate, onDelete, isHighlighted }) {
   const days = Number(order.days) || 30, mRent = Number(order.monthlyRent) || 0, renew = Number(order.renewMonths) || 0;
   const isActive = order.status === 'active', dailyRate = days > 0 ? (mRent / days) : 0, totalDays = days + (renew * 30);
   let el = 0, remD = totalDays, expireStr = "-";
@@ -524,7 +553,7 @@ function OrderRow({ order, onUpdate, onDelete }) {
   const barColor = !isActive ? "bg-gray-600" : (remD <= 3 ? "bg-red-500" : "bg-emerald-500");
 
   return (
-    <div className="grid grid-cols-12 gap-2 items-center px-2 py-1.5 bg-[#1c1c1c] hover:bg-[#252525] rounded border border-[#333] text-xs transition">
+    <div id={`order-${order.id}`} className={`grid grid-cols-12 gap-2 items-center px-2 py-1.5 rounded border text-xs transition-all duration-500 ease-in-out ${isHighlighted ? 'bg-blue-900/60 border-blue-400 scale-[1.01] shadow-[0_0_15px_rgba(59,130,246,0.4)] z-10 relative' : 'bg-[#1c1c1c] hover:bg-[#252525] border-[#333]'}`}>
       <div className="col-span-2 flex items-center space-x-2">
         <div className={`w-1 h-3 rounded-full ${isActive ? 'bg-emerald-500' : 'bg-gray-600'}`}></div>
         <input type="text" value={order.computerSn || ''} onChange={(e) => onUpdate(order.id, 'computerSn', e.target.value)} placeholder="编号" className="w-full bg-black text-white px-2 py-1 rounded border border-gray-800 outline-none" />
@@ -548,7 +577,8 @@ function OrderRow({ order, onUpdate, onDelete }) {
   );
 }
 
-function HomeTab({ orders }) {
+// 修改点：待办事项中加入了跳转查看按钮 onJump
+function HomeTab({ orders, onJump }) {
   const today = new Date();
   const expiringGroups = {};
   orders.forEach(o => {
@@ -561,7 +591,8 @@ function HomeTab({ orders }) {
       const expDate = new Date(o.startDate); expDate.setDate(expDate.getDate() + totalDays);
       if (!expiringGroups[o.customerId]) expiringGroups[o.customerId] = { cust: o.customerName, phone: o.phone, minRem: remD, devices: [] };
       if (remD < expiringGroups[o.customerId].minRem) expiringGroups[o.customerId].minRem = remD;
-      expiringGroups[o.customerId].devices.push({ sn: o.computerSn, remD, expireStr: expDate.toISOString().split('T')[0] });
+      // 记录 o.id 用于跳转
+      expiringGroups[o.customerId].devices.push({ id: o.id, sn: o.computerSn, remD, expireStr: expDate.toISOString().split('T')[0] });
     }
   });
 
@@ -584,8 +615,18 @@ function HomeTab({ orders }) {
                 <div className="flex"><span className="text-gray-400 w-12">电话:</span><span className="font-bold text-white">{t.phone || '-'}</span></div>
                 <div className="flex mt-2 pt-2 border-t border-gray-800">
                   <span className="text-gray-400 w-12 pt-1">编号:</span>
-                  <div className="flex-1 flex flex-col space-y-1">
-                    {t.devices.map((d, di) => (<span key={di} className={`font-bold ${d.remD <= 3 && d.remD >= 0 ? 'text-blue-400' : 'text-red-500'}`}>{d.sn} {d.remD < 0 ? `(超${Math.abs(d.remD)}天)` : `(剩${d.remD}天)`}</span>))}
+                  <div className="flex-1 flex flex-col space-y-1.5">
+                    {t.devices.map((d, di) => (
+                      <div key={di} className="flex justify-between items-center bg-[#1f1f1f] px-2 py-1.5 rounded border border-gray-800">
+                        <span className={`font-bold ${d.remD <= 3 && d.remD >= 0 ? 'text-blue-400' : 'text-red-500'}`}>
+                          {d.sn} {d.remD < 0 ? `(超${Math.abs(d.remD)}天)` : `(剩${d.remD}天)`}
+                        </span>
+                        {/* 这里就是新增的定位跳转按钮 */}
+                        <button onClick={() => onJump(d.id)} className="bg-gray-700 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs flex items-center transition shadow">
+                          <Search size={12} className="mr-1"/>定位
+                        </button>
+                      </div>
+                    ))}
                   </div>
                 </div>
               </div>
@@ -597,7 +638,10 @@ function HomeTab({ orders }) {
   );
 }
 
+// 修改点：加入了下钻到每天的日历网格
 function CalendarTab({ orders }) {
+  const [selectedMonth, setSelectedMonth] = useState(null);
+
   const monthlyRev = {}; let totalAcc = 0; const today = new Date(); let earliestDate = new Date();
   orders.forEach(o => {
     if (!o.computerSn || !o.startDate) return;
@@ -615,6 +659,75 @@ function CalendarTab({ orders }) {
     }
   });
 
+  // 如果处于【日历详情模式】
+  if (selectedMonth) {
+    const [year, month] = selectedMonth.split('-');
+    const daysInMonth = new Date(year, month, 0).getDate();
+    const firstDayOfWeek = new Date(year, month - 1, 1).getDay(); // 0是周日
+    
+    const dailyRev = {};
+    for(let i=1; i<=daysInMonth; i++) dailyRev[i] = 0;
+    
+    let monthTotal = 0;
+
+    orders.forEach(o => {
+        if (!o.computerSn || !o.startDate) return;
+        const days = Number(o.days) || 30, renew = Number(o.renewMonths) || 0, mRent = Number(o.monthlyRent) || 0;
+        const dailyRate = days > 0 ? mRent / days : 0, totalDays = days + renew * 30;
+        const startD = new Date(o.startDate);
+        const calcEndD = new Date(Math.min(new Date(startD.getTime() + totalDays * 86400000), new Date(today.getTime() + 86400000)));
+        
+        let currD = new Date(startD);
+        while (currD < calcEndD) {
+          if (currD.getFullYear() == year && (currD.getMonth() + 1) == month) {
+             dailyRev[currD.getDate()] += dailyRate;
+             monthTotal += dailyRate;
+          }
+          currD.setDate(currD.getDate() + 1);
+        }
+    });
+
+    const maxDaily = Math.max(...Object.values(dailyRev), 0.01);
+
+    return (
+       <div className="pb-20 animate-in fade-in slide-in-from-right-4 duration-300">
+          <div className="mb-6 flex flex-col md:flex-row items-start md:items-center space-y-4 md:space-y-0 md:space-x-4">
+             <button onClick={()=>setSelectedMonth(null)} className="bg-gray-800 hover:bg-gray-700 text-white px-3 py-1.5 rounded-lg flex items-center transition">
+               <ChevronLeft size={16} className="mr-1"/> 返回月度概览
+             </button>
+             <div>
+                <h1 className="text-xl md:text-2xl font-bold text-white">{year}年 {month}月 - 每日收益明细</h1>
+                <p className="text-emerald-500 font-bold mt-1">本月累计产生: ¥ {monthTotal.toFixed(2)}</p>
+             </div>
+          </div>
+          <div className="grid grid-cols-7 gap-2 mb-2 text-center text-sm font-bold text-gray-500">
+              <div>日</div><div>一</div><div>二</div><div>三</div><div>四</div><div>五</div><div>六</div>
+          </div>
+          <div className="grid grid-cols-7 gap-2">
+             {Array.from({length: firstDayOfWeek}).map((_, i) => <div key={`empty-${i}`} className="h-20 md:h-24 bg-[#1a1c20] rounded-xl border border-gray-800/50"></div>)}
+             {Array.from({length: daysInMonth}).map((_, i) => {
+                const day = i+1;
+                const rev = dailyRev[day];
+                let bg = "#1e2024";
+                let txt = "text-gray-500";
+                if (rev > 0) {
+                    const ratio = Math.max(0.25, rev / maxDaily);
+                    bg = `rgba(47, 165, 114, ${ratio})`; // 翡翠绿透明度
+                    txt = "text-white";
+                }
+                return (
+                    <div key={day} style={{backgroundColor: rev > 0 ? bg : undefined}} className={`h-20 md:h-24 rounded-xl border border-[#333] p-1.5 md:p-2 flex flex-col justify-between hover:border-emerald-500/50 transition-colors ${rev <= 0 ? 'bg-[#1e2024]' : ''}`}>
+                        <span className={`text-xs md:text-sm font-bold ${txt}`}>{day}</span>
+                        {rev > 0 && <span className="self-end text-white font-mono font-bold text-[10px] md:text-xs shadow-sm">+¥{rev.toFixed(1)}</span>}
+                    </div>
+                )
+             })}
+          </div>
+       </div>
+    );
+  }
+
+  // 正常月度概览模式
   const monthsList = []; let currY = earliestDate.getFullYear(), currM = earliestDate.getMonth() + 1;
   while (currY < today.getFullYear() || (currY === today.getFullYear() && currM <= today.getMonth() + 1)) {
     monthsList.push(`${currY}-${String(currM).padStart(2, '0')}`); currM++; if (currM > 12) { currM = 1; currY++; }
@@ -635,9 +748,13 @@ function CalendarTab({ orders }) {
         {monthsList.map(mKey => {
           if ((monthlyRev[mKey] || 0) <= 0) return null;
           return (
-            <div key={mKey} style={{ backgroundColor: getColor(monthlyRev[mKey]) }} className="rounded-xl border-2 border-[#333] h-28 flex flex-col justify-between p-3 shadow-lg">
-              <span className="font-bold text-white text-sm opacity-90">{mKey.replace('-', '年 ')}月</span>
-              <span className="font-mono text-xl font-bold text-white self-end">¥ {(monthlyRev[mKey]).toFixed(0)}</span>
+            <div key={mKey} onClick={() => setSelectedMonth(mKey)} style={{ backgroundColor: getColor(monthlyRev[mKey]) }} className="rounded-xl border-2 border-[#333] h-28 flex flex-col justify-between p-3 shadow-lg cursor-pointer hover:scale-105 transition-transform group relative overflow-hidden">
+              <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+              <span className="font-bold text-white text-sm opacity-90 relative z-10">{mKey.replace('-', '年 ')}月</span>
+              <div className="flex justify-between items-end relative z-10">
+                  <span className="text-white/50 text-[10px] flex items-center group-hover:text-white transition-colors bg-black/20 px-1.5 py-0.5 rounded">查看明细 <ChevronRight size={10}/></span>
+                  <span className="font-mono text-xl font-bold text-white self-end">¥ {(monthlyRev[mKey]).toFixed(0)}</span>
+              </div>
             </div>
           );
         })}
