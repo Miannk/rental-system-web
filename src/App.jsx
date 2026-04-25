@@ -638,7 +638,7 @@ function HomeTab({ orders, onJump }) {
   );
 }
 
-// 修改点：加入了下钻到每天的日历网格
+// 修改点：加入了下钻到每天的日历网格，移除了文字“查看明细”改用右上角图标
 function CalendarTab({ orders }) {
   const [selectedMonth, setSelectedMonth] = useState(null);
 
@@ -750,10 +750,18 @@ function CalendarTab({ orders }) {
           return (
             <div key={mKey} onClick={() => setSelectedMonth(mKey)} style={{ backgroundColor: getColor(monthlyRev[mKey]) }} className="rounded-xl border-2 border-[#333] h-28 flex flex-col justify-between p-3 shadow-lg cursor-pointer hover:scale-105 transition-transform group relative overflow-hidden">
               <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity"></div>
-              <span className="font-bold text-white text-sm opacity-90 relative z-10">{mKey.replace('-', '年 ')}月</span>
-              <div className="flex justify-between items-end relative z-10">
-                  <span className="text-white/50 text-[10px] flex items-center group-hover:text-white transition-colors bg-black/20 px-1.5 py-0.5 rounded">查看明细 <ChevronRight size={10}/></span>
-                  <span className="font-mono text-xl font-bold text-white self-end">¥ {(monthlyRev[mKey]).toFixed(0)}</span>
+              
+              {/* 修改点：顶部布局，月份 + 右上角悬浮箭头图标 */}
+              <div className="flex justify-between items-start relative z-10">
+                <span className="font-bold text-white text-sm opacity-90">{mKey.replace('-', '年 ')}月</span>
+                <div className="text-white/40 group-hover:text-white transition-colors bg-black/20 group-hover:bg-black/40 p-1 rounded-full">
+                  <ChevronRight size={14}/>
+                </div>
+              </div>
+              
+              {/* 底部收益金额 */}
+              <div className="flex justify-end items-end relative z-10">
+                  <span className="font-mono text-xl font-bold text-white">¥ {(monthlyRev[mKey]).toFixed(0)}</span>
               </div>
             </div>
           );
