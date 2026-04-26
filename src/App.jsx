@@ -889,41 +889,41 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId }) {
 
     return (
       <div className="pb-20 animate-in fade-in slide-in-from-right-4 duration-300">
-        <div className="mb-6 flex items-center gap-4">
-          <button onClick={() => setSelectedId(null)} className="bg-gray-800 hover:bg-gray-700 text-white px-3 py-1.5 rounded-lg flex items-center transition">
+        <div className="mb-4 md:mb-6 flex flex-col md:flex-row md:items-center gap-3 md:gap-4">
+          <button onClick={() => setSelectedId(null)} className="self-start md:self-auto bg-gray-800 hover:bg-gray-700 text-white px-3 py-1.5 rounded-lg flex items-center transition">
             <ChevronLeft size={16} className="mr-1"/> 返回设备库
           </button>
           <h2 className="text-xl md:text-2xl font-bold text-white flex items-center gap-3">
             {c.sn || '未命名'}
-            <span className={`px-2 py-1 rounded text-sm font-bold ${isRented ? 'bg-red-500/20 text-red-400' : 'bg-emerald-500/20 text-emerald-400'}`}>
+            <span className={`px-2 py-1 rounded text-xs md:text-sm font-bold ${isRented ? 'bg-red-500/20 text-red-400' : 'bg-emerald-500/20 text-emerald-400'}`}>
               {isRented ? '在租中' : '空闲'}
             </span>
           </h2>
         </div>
 
-        <div className="bg-[#1e2024] rounded-xl border border-[#3c3f41] p-6 shadow-xl max-w-4xl space-y-8">
+        <div className="bg-[#1e2024] rounded-xl border border-[#3c3f41] p-4 md:p-6 shadow-xl max-w-4xl space-y-6 md:space-y-8">
           {/* ROI & 收益条 */}
-          <div className="flex items-center gap-4">
-             <span className="text-gray-400 font-bold w-12">收益</span>
-             <div className="flex-1 bg-gray-800 h-6 rounded-md relative overflow-hidden flex items-center justify-center">
+          <div className="flex items-center gap-3 md:gap-4">
+             <span className="text-gray-400 font-bold w-10 md:w-12 shrink-0">收益</span>
+             <div className="flex-1 bg-gray-800 h-5 md:h-6 rounded-md relative overflow-hidden flex items-center justify-center">
                 <div className="absolute left-0 top-0 bottom-0 bg-emerald-600/80 transition-all duration-500" style={{width: `${mRoi * 100}%`}}></div>
-                <span className="relative text-xs font-bold text-white z-10 tracking-wider">¥ {machineEarned.toFixed(1)}</span>
+                <span className="relative text-[10px] md:text-xs font-bold text-white z-10 tracking-wider">¥ {machineEarned.toFixed(1)}</span>
              </div>
           </div>
 
-          {/* 硬件配置输入网格 */}
-          <div className="bg-[#1a1c20] p-4 md:p-6 rounded-lg grid grid-cols-2 gap-4 text-sm">
-            <div className="flex items-center gap-3"><span className="text-gray-500 w-10">CPU</span><input type="text" value={c.cpu || ''} onChange={e=>handleUpdateComputer(c.id, 'cpu', e.target.value)} className="flex-1 bg-[#2b2d33] text-white px-3 py-2 rounded outline-none" /></div>
-            <div className="flex items-center gap-3"><span className="text-gray-500 w-10">显卡</span><input type="text" value={c.gpu || ''} onChange={e=>handleUpdateComputer(c.id, 'gpu', e.target.value)} className="flex-1 bg-[#2b2d33] text-white px-3 py-2 rounded outline-none" /></div>
-            <div className="flex items-center gap-3"><span className="text-gray-500 w-10">内存</span><input type="text" value={c.ram || ''} onChange={e=>handleUpdateComputer(c.id, 'ram', e.target.value)} className="flex-1 bg-[#2b2d33] text-white px-3 py-2 rounded outline-none" /></div>
-            <div className="flex items-center gap-3"><span className="text-gray-500 w-10">固态</span><input type="text" value={c.ssd || ''} onChange={e=>handleUpdateComputer(c.id, 'ssd', e.target.value)} className="flex-1 bg-[#2b2d33] text-white px-3 py-2 rounded outline-none" /></div>
-            <div className="col-span-2 mt-4 pt-4 border-t border-[#333] flex items-center gap-3"><span className="text-gray-400 font-bold">采购成本:</span><input type="number" value={c.cost || ''} onChange={e=>handleUpdateComputer(c.id, 'cost', e.target.value)} className="flex-1 bg-[#2b2d33] text-blue-400 font-bold px-3 py-2 rounded outline-none" /></div>
+          {/* 硬件配置输入网格 - 移动端1列防挤压，桌面端2列 */}
+          <div className="bg-[#1a1c20] p-4 md:p-6 rounded-lg grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4 text-sm">
+            <div className="flex items-center gap-3"><span className="text-gray-500 w-10 shrink-0">CPU</span><input type="text" value={c.cpu || ''} onChange={e=>handleUpdateComputer(c.id, 'cpu', e.target.value)} className="flex-1 min-w-0 bg-[#2b2d33] text-white px-3 py-2 rounded outline-none" /></div>
+            <div className="flex items-center gap-3"><span className="text-gray-500 w-10 shrink-0">显卡</span><input type="text" value={c.gpu || ''} onChange={e=>handleUpdateComputer(c.id, 'gpu', e.target.value)} className="flex-1 min-w-0 bg-[#2b2d33] text-white px-3 py-2 rounded outline-none" /></div>
+            <div className="flex items-center gap-3"><span className="text-gray-500 w-10 shrink-0">内存</span><input type="text" value={c.ram || ''} onChange={e=>handleUpdateComputer(c.id, 'ram', e.target.value)} className="flex-1 min-w-0 bg-[#2b2d33] text-white px-3 py-2 rounded outline-none" /></div>
+            <div className="flex items-center gap-3"><span className="text-gray-500 w-10 shrink-0">固态</span><input type="text" value={c.ssd || ''} onChange={e=>handleUpdateComputer(c.id, 'ssd', e.target.value)} className="flex-1 min-w-0 bg-[#2b2d33] text-white px-3 py-2 rounded outline-none" /></div>
+            <div className="col-span-1 md:col-span-2 mt-2 md:mt-4 pt-4 border-t border-[#333] flex items-center gap-3"><span className="text-gray-400 font-bold shrink-0">采购成本:</span><input type="number" value={c.cost || ''} onChange={e=>handleUpdateComputer(c.id, 'cost', e.target.value)} className="flex-1 min-w-0 bg-[#2b2d33] text-blue-400 font-bold px-3 py-2 rounded outline-none" /></div>
           </div>
 
           {/* 4张图片导入卡槽 */}
           <div>
-             <span className="text-gray-400 text-sm font-bold mb-4 block">设备档案图 (点击上传)</span>
-             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+             <span className="text-gray-400 text-sm font-bold mb-3 md:mb-4 block">设备档案图 (点击上传)</span>
+             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
                 {['img1', 'img2', 'img3', 'img4'].map((imgKey, i) => (
                    <ImageUploadSlot 
                      key={imgKey} 
@@ -936,13 +936,13 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId }) {
              </div>
           </div>
 
-          {/* 底部操作栏 */}
-          <div className="flex justify-between items-center mt-6 pt-4 border-t border-[#333]">
-             <div className="flex items-center gap-3">
-               <span className="text-gray-500 text-sm font-bold">修改编号</span>
-               <input type="text" value={c.sn || ''} onChange={e=>handleUpdateComputer(c.id, 'sn', e.target.value)} className="w-32 bg-[#111] text-white px-3 py-2 rounded border border-gray-700 font-bold outline-none" placeholder="设备编号" />
+          {/* 底部操作栏 - 手机端自适应折叠布局 */}
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mt-4 md:mt-6 pt-4 border-t border-[#333] gap-4">
+             <div className="flex items-center gap-3 w-full sm:w-auto">
+               <span className="text-gray-500 text-sm font-bold shrink-0">修改编号</span>
+               <input type="text" value={c.sn || ''} onChange={e=>handleUpdateComputer(c.id, 'sn', e.target.value)} className="flex-1 min-w-0 sm:w-32 bg-[#111] text-white px-3 py-2 rounded border border-gray-700 font-bold outline-none" placeholder="设备编号" />
              </div>
-             <button onClick={() => handleDeleteComputer(c.id, c.sn)} className="flex items-center gap-2 px-4 py-2 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-lg transition font-bold border border-red-500/30">
+             <button onClick={() => handleDeleteComputer(c.id, c.sn)} className="w-full sm:w-auto flex justify-center items-center gap-2 px-4 py-2 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-lg transition font-bold border border-red-500/30">
                 <Trash2 size={16} /> 删除该机
              </button>
           </div>
@@ -964,18 +964,19 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId }) {
         <button onClick={handleAddComputer} className="bg-blue-600 hover:bg-blue-500 text-white px-5 py-2.5 rounded-xl font-bold shadow-lg shadow-blue-500/20 flex items-center gap-2 transition-transform active:scale-95"><Plus size={18} /> 新增空闲设备</button>
       </div>
 
-      <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 lg:gap-6 items-start">
+      {/* 外层方块网格适配了更完美的手机端展示比例 */}
+      <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 md:gap-6 items-start">
         {sortedComputers.map(c => {
            const isRented = c.status === 'rented';
            return (
              <div 
                key={c.id} 
                onClick={() => setSelectedId(c.id)}
-               className="bg-[#1e2024] rounded-xl border border-[#3c3f41] flex flex-col justify-center items-center h-32 cursor-pointer hover:border-gray-500 transition-all hover:scale-105 shadow-sm group"
+               className="bg-[#1e2024] rounded-xl border border-[#3c3f41] flex flex-col justify-center items-center h-24 md:h-32 cursor-pointer hover:border-gray-500 transition-all hover:scale-105 shadow-sm group p-2"
              >
-               <div className="flex items-center gap-3 transition-transform duration-300">
-                 <div className={`w-3 h-3 rounded-full ${isRented ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)] animate-pulse' : 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]'}`}></div>
-                 <span className="font-bold text-white group-hover:text-blue-400 transition-colors tracking-wider text-xl">{c.sn || '未命名'}</span>
+               <div className="flex items-center gap-2 md:gap-3 transition-transform duration-300">
+                 <div className={`w-2 h-2 md:w-3 md:h-3 shrink-0 rounded-full ${isRented ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)] animate-pulse' : 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]'}`}></div>
+                 <span className="font-bold text-white group-hover:text-blue-400 transition-colors tracking-wider text-sm md:text-xl truncate">{c.sn || '未命名'}</span>
                </div>
              </div>
            );
