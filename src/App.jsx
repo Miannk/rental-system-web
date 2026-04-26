@@ -51,8 +51,9 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState("");
   const [activeTab, setActiveTab] = useState('rental'); 
-  const [allExpanded, setAllExpanded] = useState(false); 
 
+  // --- 新增：客户详情视图与高亮状态 ---
+  const [selectedCustomerId, setSelectedCustomerId] = useState(null);
   const [highlightedOrderId, setHighlightedOrderId] = useState(null);
 
   // --- 1. 身份验证 ---
@@ -113,9 +114,80 @@ export default function App() {
     };
   }, [user, isCloudMode]);
 
-  // --- 跨页面高亮 ---
+  // --- 5. 核心计算与智能筛选 ---
+  const { sortedCustomerEntries, kpis } = useMemo(() => {
+    const map = {};
+    let totalCusts = new Set();
+    let rentedComps = 0, totalDaily = 0, totalRev = 0, totalFlow = 0;
+    const today = new Date();
+    const lowerQuery = searchQuery.toLowerCase().trim(); 
+
+    orders.forEach(o => {
+      if (filter === '进行中' && o.status !== 'active') return;
+      if (filter === '已过期' && o.status === 'active') return;
+
+      if (lowerQuery) {
+        const matchName = (o.customerName || '').toLowerCase().includes(lowerQuery);
+        const matchPhone = (o.phone || '').toLowerCase().includes(lowerQuery);
+        const matchSn = (o.computerSn || '').toLowerCase().includes(lowerQuery);
+        if (!matchName && !matchPhone && !matchSn) return; 
+      }
+
+      const cid = o.customerId;
+      if (!map[cid]) map[cid] = { name: o.customerName, phone: o.phone, address: o.address, orders: [] };
+      map[cid].orders.push(o);
+      
+      totalCusts.add(cid);
+      totalFlow += Number(o.paidRent) || 0;
+
+      if (o.computerSn) {
+        const days = Number(o.days) || 30;
+        const renew = Number(o.renewMonths) || 0;
+        const dailyRate = days > 0 ? (Number(o.monthlyRent) || 0) / days : 0;
+        const totalDays = days + (renew * 30);
+        let el = o.startDate ? Math.floor((today - new Date(o.startDate)) / 86400000) : 0;
+        let remD = totalDays - el;
+
+        if (o.status === 'active') { 
+          rentedComps++; 
+          // 【核心优化】：只要超过一天 (remD < 0)，就不再纳入日租计算范畴
+          if (remD >= 0) {
+             totalDaily += dailyRate; 
+          }
+        }
+        // 收益计算依然算满有效天数
+        totalRev += (dailyRate * Math.max(0, Math.min(el, totalDays)));
+      }
+    });
+
+    const sortedEntries = Object.entries(map).sort((a, b) => {
+      const getSortTime = (cid, customerData) => {
+        const createdAts = customerData.orders.map(o => o.createdAt).filter(v => v);
+        if (createdAts.length > 0) return Math.min(...createdAts); 
+        const match = cid.match(/\d{13}/);
+        if (match) return parseInt(match[0]);
+        return Math.min(...customerData.orders.map(o => new Date(o.startDate || 0).getTime()));
+      };
+      return getSortTime(a[0], a[1]) - getSortTime(b[0], b[1]);
+    });
+
+    return {
+      sortedCustomerEntries: sortedEntries,
+      kpis: {
+        custs: totalCusts.size, rented: rentedComps,
+        daily: totalDaily.toFixed(2), rev: totalRev.toFixed(2), flow: totalFlow.toFixed(2)
+      }
+    };
+  }, [orders, filter, searchQuery]);
+
+  // --- 跨页面高亮与自动展开 ---
   useEffect(() => {
     if (activeTab === 'rental' && highlightedOrderId) {
+      // 找到包含该订单的客户
+      const foundEntry = sortedCustomerEntries.find(([cid, data]) => data.orders.some(o => o.id === highlightedOrderId));
+      if (foundEntry) {
+         setSelectedCustomerId(foundEntry[0]);
+      }
       const timer1 = setTimeout(() => {
         const el = document.getElementById(`order-${highlightedOrderId}`);
         if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -125,17 +197,19 @@ export default function App() {
       }, 4000);
       return () => { clearTimeout(timer1); clearTimeout(timer2); };
     }
-  }, [activeTab, highlightedOrderId]);
+  }, [activeTab, highlightedOrderId, sortedCustomerEntries]);
+
+  // 将相关的 useMemo 移到条件渲染前，解决 React Hook 渲染顺序不一致的问题
+  const selectedCustomerEntry = useMemo(() => {
+    if (!selectedCustomerId) return null;
+    return sortedCustomerEntries.find(([cid]) => cid === selectedCustomerId);
+  }, [selectedCustomerId, sortedCustomerEntries]);
 
   // --- 3. 数据导入 ---
   const handleImportData = (event) => {
     const file = event.target.files[0];
     if (!file) return;
-    
-    if (!isCloudMode || !user) {
-      alert("系统未连接云端，无法导入！");
-      return;
-    }
+    if (!isCloudMode || !user) return alert("系统未连接云端，无法导入！");
 
     const reader = new FileReader();
     reader.onload = async (e) => {
@@ -196,8 +270,6 @@ export default function App() {
     const oldOrder = orders.find(o => o.id === id);
     if (isCloudMode) {
       await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'orders', id), { [field]: value }, { merge: true });
-      
-      // 智能联动：如果修改的是设备编号，自动同步更新设备的【空闲/在租】状态
       if (field === 'computerSn') {
         if (oldOrder && oldOrder.computerSn) {
           const oldC = computers.find(c => c.sn === oldOrder.computerSn);
@@ -232,8 +304,9 @@ export default function App() {
   };
 
   const handleAddCustomer = async () => {
+    const cid = `cust-${Date.now()}`;
     const newOrder = {
-      customerId: `cust-${Date.now()}`, customerName: '新客户', phone: '', address: '',
+      customerId: cid, customerName: '新客户', phone: '', address: '',
       computerSn: '', startDate: new Date().toISOString().split('T')[0], days: 30, monthlyRent: 0, paidRent: 0, renewMonths: 0, status: 'active',
       createdAt: Date.now() 
     };
@@ -242,7 +315,8 @@ export default function App() {
     } else {
       setOrders(prev => [...prev, { id: Date.now().toString(), ...newOrder }]);
     }
-    setAllExpanded(true); 
+    // 添加后自动跳转到该客户详情
+    setSelectedCustomerId(cid);
   };
 
   const handleAddDevice = async (customerId, customerName, phone, address) => {
@@ -277,65 +351,9 @@ export default function App() {
     } else {
       setOrders(prev => prev.filter(o => o.customerId !== customerId));
     }
+    if (selectedCustomerId === customerId) setSelectedCustomerId(null);
   };
 
-  // --- 5. 核心计算与智能筛选 ---
-  const { sortedCustomerEntries, kpis } = useMemo(() => {
-    const map = {};
-    let totalCusts = new Set();
-    let rentedComps = 0, totalDaily = 0, totalRev = 0, totalFlow = 0;
-    const today = new Date();
-    const lowerQuery = searchQuery.toLowerCase().trim(); 
-
-    orders.forEach(o => {
-      if (filter === '进行中' && o.status !== 'active') return;
-      if (filter === '已过期' && o.status === 'active') return;
-
-      if (lowerQuery) {
-        const matchName = (o.customerName || '').toLowerCase().includes(lowerQuery);
-        const matchPhone = (o.phone || '').toLowerCase().includes(lowerQuery);
-        const matchSn = (o.computerSn || '').toLowerCase().includes(lowerQuery);
-        if (!matchName && !matchPhone && !matchSn) return; 
-      }
-
-      const cid = o.customerId;
-      if (!map[cid]) map[cid] = { name: o.customerName, phone: o.phone, address: o.address, orders: [] };
-      map[cid].orders.push(o);
-      
-      totalCusts.add(cid);
-      totalFlow += Number(o.paidRent) || 0;
-
-      if (o.computerSn) {
-        const days = Number(o.days) || 30;
-        const renew = Number(o.renewMonths) || 0;
-        const dailyRate = days > 0 ? (Number(o.monthlyRent) || 0) / days : 0;
-        const totalDays = days + (renew * 30);
-        let el = o.startDate ? Math.floor((today - new Date(o.startDate)) / 86400000) : 0;
-
-        if (o.status === 'active') { rentedComps++; totalDaily += dailyRate; }
-        totalRev += (dailyRate * Math.max(0, Math.min(el, totalDays)));
-      }
-    });
-
-    const sortedEntries = Object.entries(map).sort((a, b) => {
-      const getSortTime = (cid, customerData) => {
-        const createdAts = customerData.orders.map(o => o.createdAt).filter(v => v);
-        if (createdAts.length > 0) return Math.min(...createdAts); 
-        const match = cid.match(/\d{13}/);
-        if (match) return parseInt(match[0]);
-        return Math.min(...customerData.orders.map(o => new Date(o.startDate || 0).getTime()));
-      };
-      return getSortTime(a[0], a[1]) - getSortTime(b[0], b[1]);
-    });
-
-    return {
-      sortedCustomerEntries: sortedEntries,
-      kpis: {
-        custs: totalCusts.size, rented: rentedComps,
-        daily: totalDaily.toFixed(2), rev: totalRev.toFixed(2), flow: totalFlow.toFixed(2)
-      }
-    };
-  }, [orders, filter, searchQuery]);
 
   if (loading || errorMsg) {
     return (
@@ -368,7 +386,7 @@ export default function App() {
         </div>
         <nav className="space-y-2 flex-1">
           {navTabs.map(tab => (
-            <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+            <button key={tab.id} onClick={() => { setActiveTab(tab.id); setSelectedCustomerId(null); }}
               className={`w-full text-left px-4 py-3 rounded-lg transition font-medium ${activeTab === tab.id ? 'bg-blue-600 bg-opacity-20 text-blue-400 border border-blue-500/30' : 'text-gray-400 hover:bg-gray-800'}`}>
               {tab.icon} {tab.label}
             </button>
@@ -378,71 +396,86 @@ export default function App() {
 
       <div className="flex-1 flex flex-col p-4 md:p-8 overflow-y-auto">
         {activeTab === 'rental' ? (
-          <>
-            <div className="flex flex-col mb-6 gap-4">
-              <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4">
-                <div className="flex items-center gap-3">
-                  <h1 className="text-xl md:text-2xl font-bold text-white whitespace-nowrap">合同与流转</h1>
-                  <div className="bg-gray-800 p-1 rounded-lg flex space-x-1 text-sm">
-                    {['全部', '进行中', '已过期'].map(f => (
-                      <button key={f} onClick={() => setFilter(f)} className={`px-3 py-1 rounded-md transition ${filter === f ? 'bg-blue-600 text-white' : 'text-gray-400'}`}>{f}</button>
-                    ))}
+          selectedCustomerEntry ? (
+            <CustomerDetailView 
+               cid={selectedCustomerEntry[0]} 
+               data={selectedCustomerEntry[1]} 
+               onBack={() => setSelectedCustomerId(null)} 
+               onUpdateCustomer={handleUpdateCustomer} 
+               onAddDevice={handleAddDevice} 
+               onDeleteCustomer={handleDeleteCustomer} 
+               onUpdateOrder={handleUpdateOrder} 
+               onDeleteOrder={handleDeleteOrder} 
+               highlightedOrderId={highlightedOrderId} 
+               computers={computers} 
+               orders={orders} 
+            />
+          ) : (
+            <>
+              <div className="flex flex-col mb-6 gap-4 animate-in fade-in duration-300">
+                <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4">
+                  <div className="flex items-center gap-3">
+                    <h1 className="text-xl md:text-2xl font-bold text-white whitespace-nowrap">合同与流转</h1>
+                    <div className="bg-gray-800 p-1 rounded-lg flex space-x-1 text-sm">
+                      {['全部', '进行中', '已过期'].map(f => (
+                        <button key={f} onClick={() => setFilter(f)} className={`px-3 py-1 rounded-md transition ${filter === f ? 'bg-blue-600 text-white' : 'text-gray-400'}`}>{f}</button>
+                      ))}
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center space-x-2 w-full xl:w-auto overflow-x-auto pb-2 xl:pb-0 no-scrollbar">
+                    <label className="flex-shrink-0 flex items-center justify-center space-x-2 bg-[#2b2d33] hover:bg-gray-700 text-white px-3 py-2 rounded-lg font-medium transition cursor-pointer border border-gray-700">
+                      <input type="file" accept=".json" className="hidden" onChange={handleImportData} />
+                      <Upload size={16} />
+                      <span className="text-sm">导入</span>
+                    </label>
+                    <button onClick={handleAddCustomer} className="flex-shrink-0 flex items-center justify-center space-x-2 bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded-lg font-medium transition shadow-lg shadow-blue-500/20">
+                      <Plus size={18} />
+                      <span className="text-sm">新建客户</span>
+                    </button>
                   </div>
                 </div>
-                
-                <div className="flex items-center space-x-2 w-full xl:w-auto overflow-x-auto pb-2 xl:pb-0 no-scrollbar">
-                  <button onClick={() => setAllExpanded(!allExpanded)} className="flex-shrink-0 flex items-center justify-center space-x-2 bg-[#1f538d] hover:bg-blue-700 text-white px-3 py-2 rounded-lg font-medium transition shadow-sm border border-[#1f538d]">
-                    <span className="text-sm">{allExpanded ? '👆 折叠全部' : '👇 展开全部'}</span>
-                  </button>
-                  <label className="flex-shrink-0 flex items-center justify-center space-x-2 bg-[#2b2d33] hover:bg-gray-700 text-white px-3 py-2 rounded-lg font-medium transition cursor-pointer border border-gray-700">
-                    <input type="file" accept=".json" className="hidden" onChange={handleImportData} />
-                    <Upload size={16} />
-                    <span className="text-sm">导入</span>
-                  </label>
-                  <button onClick={handleAddCustomer} className="flex-shrink-0 flex items-center justify-center space-x-2 bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded-lg font-medium transition shadow-lg shadow-blue-500/20">
-                    <Plus size={18} />
-                    <span className="text-sm">新建客户</span>
-                  </button>
+
+                <div className="relative w-full">
+                  <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+                  <input 
+                    type="text" 
+                    placeholder="🔍 搜索：客户姓名、手机号、机箱编号..." 
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full pl-11 pr-10 py-3 bg-[#111214] text-white rounded-xl border border-gray-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none text-sm md:text-base transition-all shadow-inner"
+                  />
+                  {searchQuery && (
+                    <button onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-white bg-gray-700 rounded-full p-1 transition">
+                      <Trash2 size={14} />
+                    </button>
+                  )}
                 </div>
               </div>
 
-              <div className="relative w-full">
-                <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
-                <input 
-                  type="text" 
-                  placeholder="🔍 搜索：客户姓名、手机号、机箱编号..." 
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-11 pr-10 py-3 bg-[#111214] text-white rounded-xl border border-gray-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none text-sm md:text-base transition-all shadow-inner"
-                />
-                {searchQuery && (
-                  <button onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-white bg-gray-700 rounded-full p-1 transition">
-                    <Trash2 size={14} />
-                  </button>
+              <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+                <KpiCard title={searchQuery ? "匹配客户数" : "总客户数"} value={kpis.custs} />
+                <KpiCard title={searchQuery ? "匹配设备数" : "在租设备"} value={kpis.rented} />
+                <KpiCard title="预计日租" value={`¥ ${kpis.daily}`} color="text-orange-500" />
+                <KpiCard title="累计收益" value={`¥ ${kpis.rev}`} color="text-emerald-500" />
+                <KpiCard title="流水总额" value={`¥ ${kpis.flow}`} color="text-blue-400" className="col-span-2 lg:col-span-1" />
+              </div>
+
+              <div className="pb-20">
+                {sortedCustomerEntries.length === 0 ? (
+                  <div className="text-center text-gray-500 py-20 bg-[#22252b] rounded-xl border border-gray-800">
+                    {searchQuery ? "没有搜到相关订单哦~" : "当前没有数据，点击右上角【导入】同步历史记录。"}
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 items-start">
+                    {sortedCustomerEntries.map(([cid, data]) => (
+                      <CustomerCard key={cid} cid={cid} data={data} onSelect={setSelectedCustomerId} />
+                    ))}
+                  </div>
                 )}
               </div>
-            </div>
-
-            <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
-              <KpiCard title={searchQuery ? "匹配客户数" : "总客户数"} value={kpis.custs} />
-              <KpiCard title={searchQuery ? "匹配设备数" : "在租设备"} value={kpis.rented} />
-              <KpiCard title="预计日租" value={`¥ ${kpis.daily}`} color="text-orange-500" />
-              <KpiCard title="累计收益" value={`¥ ${kpis.rev}`} color="text-emerald-500" />
-              <KpiCard title="流水总额" value={`¥ ${kpis.flow}`} color="text-blue-400" className="col-span-2 lg:col-span-1" />
-            </div>
-
-            <div className="space-y-4 pb-20">
-              {sortedCustomerEntries.length === 0 ? (
-                <div className="text-center text-gray-500 py-20 bg-[#22252b] rounded-xl border border-gray-800">
-                  {searchQuery ? "没有搜到相关订单哦~" : "当前没有数据，点击右上角【导入】同步历史记录。"}
-                </div>
-              ) : (
-                sortedCustomerEntries.map(([cid, data], idx) => (
-                  <CustomerGroup key={cid} cid={cid} data={data} idx={idx} forceExpandState={allExpanded} highlightedOrderId={highlightedOrderId} onUpdateCustomer={handleUpdateCustomer} onAddDevice={handleAddDevice} onDeleteCustomer={handleDeleteCustomer} onUpdateOrder={handleUpdateOrder} onDeleteOrder={handleDeleteOrder} computers={computers} orders={orders} />
-                ))
-              )}
-            </div>
-          </>
+            </>
+          )
         ) : activeTab === 'home' ? (
           <HomeTab orders={orders} onJump={(id) => { setHighlightedOrderId(id); setActiveTab('rental'); }} />
         ) : activeTab === 'equipment' ? (
@@ -454,7 +487,7 @@ export default function App() {
 
       <div className="md:hidden fixed bottom-0 left-0 right-0 bg-[#1a1c20] border-t border-gray-800 flex justify-around items-center z-[999999] h-16 pb-safe shadow-[0_-4px_15px_rgba(0,0,0,0.8)]">
         {navTabs.map(tab => (
-          <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex flex-col items-center justify-center w-full h-full ${activeTab === tab.id ? 'text-blue-400' : 'text-gray-500'}`}>
+          <button key={tab.id} onClick={() => { setActiveTab(tab.id); setSelectedCustomerId(null); }} className={`flex flex-col items-center justify-center w-full h-full ${activeTab === tab.id ? 'text-blue-400' : 'text-gray-500'}`}>
             <span className={`text-xl mb-1 ${activeTab === tab.id ? 'scale-110' : ''} transition-transform`}>{tab.icon}</span>
             <span className="text-[10px] font-bold">{tab.shortLabel}</span>
           </button>
@@ -473,19 +506,57 @@ function KpiCard({ title, value, color = "text-white", className = "" }) {
   );
 }
 
-function CustomerGroup({ cid, data, forceExpandState, highlightedOrderId, onUpdateCustomer, onAddDevice, onDeleteCustomer, onUpdateOrder, onDeleteOrder, computers, orders }) {
-  const [expanded, setExpanded] = useState(false); 
-  
-  const hasHighlighted = useMemo(() => data.orders.some(o => o.id === highlightedOrderId), [data.orders, highlightedOrderId]);
+// 块状客户卡片 (瀑布流布局使用)
+function CustomerCard({ cid, data, onSelect }) {
+  let activeCount = 0, tDaily = 0, tAcc = 0;
+  const today = new Date();
 
-  useEffect(() => { 
-    if (forceExpandState || hasHighlighted) {
-      setExpanded(true); 
-    } else if (!forceExpandState && !hasHighlighted) {
-      setExpanded(false);
+  data.orders.forEach(o => {
+    if (o.computerSn) {
+      const days = Number(o.days) || 30, mRent = Number(o.monthlyRent) || 0;
+      const dailyRate = days > 0 ? mRent / days : 0;
+      const totalDays = days + (Number(o.renewMonths) * 30);
+      let el = o.startDate ? Math.floor((today - new Date(o.startDate)) / 86400000) : 0;
+      let remD = totalDays - el;
+      
+      if (o.status === 'active') { 
+        activeCount++; 
+        // 核心财务逻辑：只有未超期(包含0)才计入有效日租
+        if (remD >= 0) {
+           tDaily += dailyRate; 
+        }
+      }
+      tAcc += dailyRate * Math.max(0, Math.min(el, totalDays));
     }
-  }, [forceExpandState, hasHighlighted]);
+  });
 
+  return (
+    <div onClick={() => onSelect(cid)} className="bg-[#1e2024] rounded-xl border border-[#3c3f41] p-4 cursor-pointer hover:border-gray-500 transition-all hover:scale-105 shadow-sm group relative flex flex-col justify-between h-36">
+      <div>
+         <div className="flex justify-between items-start mb-2">
+            <div className="font-bold text-white text-lg truncate pr-2 group-hover:text-blue-400 transition-colors">{data.name || '未命名客户'}</div>
+            <div className={`text-[10px] font-bold px-2 py-1 rounded shrink-0 ${activeCount > 0 ? 'bg-blue-500/20 text-blue-400' : 'bg-gray-700 text-gray-400'}`}>
+               在租 {activeCount}
+            </div>
+         </div>
+         <div className="text-gray-400 text-xs flex items-center gap-1 mb-3"><Phone size={12}/>{data.phone || '无电话'}</div>
+      </div>
+      <div className="flex justify-between items-end border-t border-[#333] pt-2">
+         <div>
+            <div className="text-gray-500 text-[10px] mb-0.5">预计日租</div>
+            <div className="text-orange-500 font-bold text-sm">¥ {tDaily.toFixed(1)}</div>
+         </div>
+         <div className="text-right">
+            <div className="text-gray-500 text-[10px] mb-0.5">累计收益</div>
+            <div className="text-emerald-500 font-bold text-sm">¥ {tAcc.toFixed(1)}</div>
+         </div>
+      </div>
+    </div>
+  );
+}
+
+// 沉浸式客户全屏详情组件
+function CustomerDetailView({ cid, data, onBack, onUpdateCustomer, onAddDevice, onDeleteCustomer, onUpdateOrder, onDeleteOrder, highlightedOrderId, computers, orders }) {
   let activeCount = 0, tDaily = 0, tAcc = 0;
   const today = new Date();
 
@@ -501,35 +572,46 @@ function CustomerGroup({ cid, data, forceExpandState, highlightedOrderId, onUpda
       const dailyRate = days > 0 ? mRent / days : 0;
       const totalDays = days + (Number(o.renewMonths) * 30);
       let el = o.startDate ? Math.floor((today - new Date(o.startDate)) / 86400000) : 0;
-      if (o.status === 'active') { activeCount++; tDaily += dailyRate; }
+      let remD = totalDays - el;
+      if (o.status === 'active') { 
+        activeCount++; 
+        if (remD >= 0) tDaily += dailyRate; 
+      }
       tAcc += dailyRate * Math.max(0, Math.min(el, totalDays));
     }
   });
 
   return (
-    <div className="bg-[#22252b] rounded-xl border border-[#333842] overflow-hidden shadow-sm">
-      <div className="p-3 md:p-4 bg-[#262930] flex flex-col md:flex-row md:items-center justify-between border-b border-[#333842] gap-3">
-        <div className="flex items-center space-x-2 md:space-x-4 overflow-x-auto no-scrollbar pb-1">
-          <button onClick={() => setExpanded(!expanded)} className="p-1.5 bg-[#1f538d] rounded-md text-white flex-shrink-0">
-            {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-          </button>
-          <input type="text" value={data.name} onChange={(e) => onUpdateCustomer(cid, 'customerName', e.target.value)} 
-            placeholder="客户姓名" className="w-24 md:w-32 bg-[#1a1c20] text-white px-2 py-1.5 rounded border border-gray-700 outline-none font-bold" />
-          <input type="text" value={data.phone} onChange={(e) => onUpdateCustomer(cid, 'phone', e.target.value)} 
-            placeholder="电话" className="w-28 md:w-32 bg-[#1a1c20] text-white px-2 py-1.5 rounded border border-gray-700 outline-none" />
-          <button onClick={() => { onAddDevice(cid, data.name, data.phone, data.address); setExpanded(true); }} className="flex-shrink-0 w-8 h-8 bg-emerald-600 rounded-md text-white flex items-center justify-center">
-            <Plus size={18} />
-          </button>
-        </div>
-        <div className="flex items-center space-x-4 text-xs font-bold md:bg-transparent bg-[#1a1c20] p-2 md:p-0 rounded-lg">
-          <span className="text-blue-400">在租: {activeCount}台</span>
-          <span className="text-orange-500">日租: ¥{tDaily.toFixed(1)}</span>
-          <span className="text-emerald-500">收益: ¥{tAcc.toFixed(1)}</span>
-          <button onClick={() => onDeleteCustomer(cid)} className="ml-auto text-red-500 p-1 border border-red-500/30 rounded"><Trash2 size={14} /></button>
-        </div>
+    <div className="pb-20 animate-in fade-in slide-in-from-right-4 duration-300">
+      <div className="mb-4 md:mb-6 flex flex-col md:flex-row md:items-center gap-3 md:gap-4">
+        <button onClick={onBack} className="self-start md:self-auto bg-gray-800 hover:bg-gray-700 text-white px-3 py-1.5 rounded-lg flex items-center transition">
+          <ChevronLeft size={16} className="mr-1"/> 返回客户列表
+        </button>
+        <h2 className="text-xl md:text-2xl font-bold text-white flex items-center gap-3">
+          客户订单详情
+        </h2>
       </div>
-      {expanded && (
-        <div className="p-2 md:p-4 md:pl-10 overflow-x-auto">
+
+      <div className="bg-[#1e2024] rounded-xl border border-[#3c3f41] overflow-hidden shadow-xl">
+        <div className="p-4 md:p-6 bg-[#262930] flex flex-col md:flex-row md:items-center justify-between border-b border-[#333842] gap-4">
+          <div className="flex flex-wrap items-center gap-4">
+            <input type="text" value={data.name} onChange={(e) => onUpdateCustomer(cid, 'customerName', e.target.value)} 
+              placeholder="客户姓名" className="w-32 bg-[#1a1c20] text-white px-3 py-2 rounded border border-gray-700 outline-none font-bold" />
+            <input type="text" value={data.phone} onChange={(e) => onUpdateCustomer(cid, 'phone', e.target.value)} 
+              placeholder="电话" className="w-36 bg-[#1a1c20] text-white px-3 py-2 rounded border border-gray-700 outline-none" />
+            <button onClick={() => onAddDevice(cid, data.name, data.phone, data.address)} className="w-10 h-10 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-white flex items-center justify-center transition shadow-lg">
+              <Plus size={20} />
+            </button>
+          </div>
+          <div className="flex flex-wrap items-center gap-6 bg-[#1a1c20] p-3 rounded-lg">
+            <div className="text-center"><div className="text-gray-500 text-xs mb-1">在租设备</div><div className="text-blue-400 font-bold">{activeCount} 台</div></div>
+            <div className="text-center"><div className="text-gray-500 text-xs mb-1">有效日租</div><div className="text-orange-500 font-bold">¥{tDaily.toFixed(1)}</div></div>
+            <div className="text-center"><div className="text-gray-500 text-xs mb-1">累计收益</div><div className="text-emerald-500 font-bold">¥{tAcc.toFixed(1)}</div></div>
+            <button onClick={() => { if(window.confirm("确定删除该客户及其所有订单？")) onDeleteCustomer(cid); }} className="ml-2 text-red-500 p-2 border border-red-500/30 hover:bg-red-500 hover:text-white rounded-lg transition"><Trash2 size={16} /></button>
+          </div>
+        </div>
+        
+        <div className="p-4 overflow-x-auto">
           <div className="min-w-[850px] space-y-1">
             <div className="grid grid-cols-12 gap-2 px-2 py-1 text-[10px] font-bold text-gray-500 bg-[#183652] rounded">
               <div className="col-span-2">设备编号</div><div className="col-span-2">起租日期</div><div className="col-span-1 text-center">周期</div><div className="col-span-1 text-center">续租</div><div className="col-span-2">进度概览</div><div className="col-span-1 text-center">月租金</div><div className="col-span-1 text-center">日收益</div><div className="col-span-1 text-center">已收</div><div className="col-span-1 text-center">操作</div>
@@ -539,7 +621,7 @@ function CustomerGroup({ cid, data, forceExpandState, highlightedOrderId, onUpda
             ))}
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -557,6 +639,9 @@ function OrderRow({ order, onUpdate, onDelete, isHighlighted, computers, orders 
   }
   const progressRatio = totalDays > 0 ? Math.min(Math.max(0, el) / totalDays, 1) : 0;
   const barColor = !isActive ? "bg-gray-600" : (remD <= 3 ? "bg-red-500" : "bg-emerald-500");
+  
+  // 对于超期的设备，日收益一栏直接显示0，防止财务误解
+  const effectiveDailyRate = (isActive && remD >= 0) ? dailyRate : 0;
 
   return (
     <div id={`order-${order.id}`} className={`grid grid-cols-12 gap-2 items-center px-2 py-1.5 rounded border text-xs transition-all duration-500 ease-in-out ${isHighlighted ? 'bg-blue-900/60 border-blue-400 scale-[1.01] shadow-[0_0_15px_rgba(59,130,246,0.4)] z-10 relative' : 'bg-[#1c1c1c] hover:bg-[#252525] border-[#333]'}`}>
@@ -590,7 +675,7 @@ function OrderRow({ order, onUpdate, onDelete, isHighlighted, computers, orders 
         <div className="flex justify-between text-[8px] font-bold text-gray-500 uppercase"><span>剩{Math.floor(remD)}天</span><span>到期:{expireStr}</span></div>
       </div>
       <div className="col-span-1"><input type="number" value={order.monthlyRent} onChange={(e) => onUpdate(order.id, 'monthlyRent', e.target.value)} className="w-full text-center bg-black text-emerald-400 py-1 rounded border border-gray-800 font-bold" /></div>
-      <div className="col-span-1 text-center font-bold text-orange-500">{dailyRate.toFixed(1)}</div>
+      <div className="col-span-1 text-center font-bold text-orange-500">{effectiveDailyRate.toFixed(1)}</div>
       <div className="col-span-1"><input type="number" value={order.paidRent} onChange={(e) => onUpdate(order.id, 'paidRent', e.target.value)} className="w-full text-center bg-black text-blue-400 py-1 rounded border border-gray-800" /></div>
       <div className="col-span-1 flex justify-center"><button onClick={() => onDelete(order.id)} className="p-1 text-red-500 hover:bg-red-500 hover:text-white rounded transition"><Trash2 size={14} /></button></div>
     </div>
@@ -781,14 +866,12 @@ function CalendarTab({ orders }) {
   );
 }
 
-// 独立的图片上传卡槽组件 (转为Base64存入云端)
 function ImageUploadSlot({ label, image, onUpload, onRemove }) {
   const handleFile = (e) => {
     const file = e.target.files[0];
     if(!file) return;
     const reader = new FileReader();
     reader.onload = (event) => {
-      // 创建图片对象进行前端压缩，防止超出 Firestore 1MB 的单文档限制
       const img = new Image();
       img.onload = () => {
         const canvas = document.createElement('canvas');
@@ -813,8 +896,6 @@ function ImageUploadSlot({ label, image, onUpload, onRemove }) {
         canvas.height = height;
         const ctx = canvas.getContext('2d');
         ctx.drawImage(img, 0, 0, width, height);
-
-        // 导出压缩后的 JPEG 格式图片 (质量设为 60%)
         const compressedBase64 = canvas.toDataURL('image/jpeg', 0.6);
         onUpload(compressedBase64);
       };
@@ -836,7 +917,6 @@ function ImageUploadSlot({ label, image, onUpload, onRemove }) {
         <input type="file" accept="image/*" className="hidden" onChange={handleFile} />
       </label>
       
-      {/* 悬浮显示的删除按钮 */}
       {image && (
          <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); onRemove(); }} 
             className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity shadow-lg z-10">
@@ -902,7 +982,6 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId }) {
         </div>
 
         <div className="bg-[#1e2024] rounded-xl border border-[#3c3f41] p-4 md:p-6 shadow-xl max-w-4xl space-y-6 md:space-y-8">
-          {/* ROI & 收益条 */}
           <div className="flex items-center gap-3 md:gap-4">
              <span className="text-gray-400 font-bold w-10 md:w-12 shrink-0">收益</span>
              <div className="flex-1 bg-gray-800 h-5 md:h-6 rounded-md relative overflow-hidden flex items-center justify-center">
@@ -911,7 +990,6 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId }) {
              </div>
           </div>
 
-          {/* 硬件配置输入网格 - 移动端1列防挤压，桌面端2列 */}
           <div className="bg-[#1a1c20] p-4 md:p-6 rounded-lg grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4 text-sm">
             <div className="flex items-center gap-3"><span className="text-gray-500 w-10 shrink-0">CPU</span><input type="text" value={c.cpu || ''} onChange={e=>handleUpdateComputer(c.id, 'cpu', e.target.value)} className="flex-1 min-w-0 bg-[#2b2d33] text-white px-3 py-2 rounded outline-none" /></div>
             <div className="flex items-center gap-3"><span className="text-gray-500 w-10 shrink-0">显卡</span><input type="text" value={c.gpu || ''} onChange={e=>handleUpdateComputer(c.id, 'gpu', e.target.value)} className="flex-1 min-w-0 bg-[#2b2d33] text-white px-3 py-2 rounded outline-none" /></div>
@@ -920,7 +998,6 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId }) {
             <div className="col-span-1 md:col-span-2 mt-2 md:mt-4 pt-4 border-t border-[#333] flex items-center gap-3"><span className="text-gray-400 font-bold shrink-0">采购成本:</span><input type="number" value={c.cost || ''} onChange={e=>handleUpdateComputer(c.id, 'cost', e.target.value)} className="flex-1 min-w-0 bg-[#2b2d33] text-blue-400 font-bold px-3 py-2 rounded outline-none" /></div>
           </div>
 
-          {/* 4张图片导入卡槽 */}
           <div>
              <span className="text-gray-400 text-sm font-bold mb-3 md:mb-4 block">设备档案图 (点击上传)</span>
              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
@@ -936,7 +1013,6 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId }) {
              </div>
           </div>
 
-          {/* 底部操作栏 - 手机端自适应折叠布局 */}
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mt-4 md:mt-6 pt-4 border-t border-[#333] gap-4">
              <div className="flex items-center gap-3 w-full sm:w-auto">
                <span className="text-gray-500 text-sm font-bold shrink-0">修改编号</span>
@@ -964,7 +1040,6 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId }) {
         <button onClick={handleAddComputer} className="bg-blue-600 hover:bg-blue-500 text-white px-5 py-2.5 rounded-xl font-bold shadow-lg shadow-blue-500/20 flex items-center gap-2 transition-transform active:scale-95"><Plus size={18} /> 新增空闲设备</button>
       </div>
 
-      {/* 外层方块网格适配了更完美的手机端展示比例 */}
       <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 md:gap-6 items-start">
         {sortedComputers.map(c => {
            const isRented = c.status === 'rented';
