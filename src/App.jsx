@@ -134,7 +134,16 @@ export default function App() {
       }
 
       const cid = o.customerId;
-      if (!map[cid]) map[cid] = { name: o.customerName, phone: o.phone, address: o.address, orders: [] };
+      if (!map[cid]) map[cid] = { 
+          name: o.customerName, 
+          phone: o.phone, 
+          address: o.address, 
+          img1: o.img1, 
+          img2: o.img2, 
+          img3: o.img3, 
+          img4: o.img4, 
+          orders: [] 
+      };
       map[cid].orders.push(o);
       
       totalCusts.add(cid);
@@ -199,7 +208,6 @@ export default function App() {
     }
   }, [activeTab, highlightedOrderId, sortedCustomerEntries]);
 
-  // 将相关的 useMemo 移到条件渲染前，解决 React Hook 渲染顺序不一致的问题
   const selectedCustomerEntry = useMemo(() => {
     if (!selectedCustomerId) return null;
     return sortedCustomerEntries.find(([cid]) => cid === selectedCustomerId);
@@ -237,6 +245,7 @@ export default function App() {
               days: Number(item.days) || 30, monthlyRent: Number(item.monthly_rent) || 0,
               paidRent: Number(item.paid_rent) || 0, renewMonths: Number(item.renew_months) || 0,
               status: item.status || 'active', isFullSet: item.is_full_set || '否',
+              img1: item.img1 || '', img2: item.img2 || '', img3: item.img3 || '', img4: item.img4 || '',
               createdAt: Date.now() + timeOffset 
             };
             await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'orders'), webOrder);
@@ -308,6 +317,7 @@ export default function App() {
     const newOrder = {
       customerId: cid, customerName: '新客户', phone: '', address: '',
       computerSn: '', startDate: new Date().toISOString().split('T')[0], days: 30, monthlyRent: 0, paidRent: 0, renewMonths: 0, status: 'active',
+      img1: '', img2: '', img3: '', img4: '',
       createdAt: Date.now() 
     };
     if (isCloudMode) {
@@ -323,6 +333,7 @@ export default function App() {
     const newOrder = {
       customerId, customerName, phone, address,
       computerSn: '', startDate: new Date().toISOString().split('T')[0], days: 30, monthlyRent: 0, paidRent: 0, renewMonths: 0, status: 'active',
+      img1: '', img2: '', img3: '', img4: '',
       createdAt: Date.now()
     };
     if (isCloudMode) {
@@ -342,7 +353,7 @@ export default function App() {
   };
 
   const handleDeleteCustomer = async (customerId) => {
-    if (!window.confirm("确定删除整个客户及其所有订单？")) return;
+    if (!window.confirm("确定彻底删除整个客户及其所有订单记录？")) return;
     const customerOrders = orders.filter(o => o.customerId === customerId);
     if (isCloudMode) {
       for (const order of customerOrders) {
@@ -353,7 +364,6 @@ export default function App() {
     }
     if (selectedCustomerId === customerId) setSelectedCustomerId(null);
   };
-
 
   if (loading || errorMsg) {
     return (
@@ -456,7 +466,7 @@ export default function App() {
               <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
                 <KpiCard title={searchQuery ? "匹配客户数" : "总客户数"} value={kpis.custs} />
                 <KpiCard title={searchQuery ? "匹配设备数" : "在租设备"} value={kpis.rented} />
-                <KpiCard title="预计日租" value={`¥ ${kpis.daily}`} color="text-orange-500" />
+                <KpiCard title="日租" value={`¥ ${kpis.daily}`} color="text-orange-500" />
                 <KpiCard title="累计收益" value={`¥ ${kpis.rev}`} color="text-emerald-500" />
                 <KpiCard title="流水总额" value={`¥ ${kpis.flow}`} color="text-blue-400" className="col-span-2 lg:col-span-1" />
               </div>
@@ -543,7 +553,7 @@ function CustomerCard({ cid, data, onSelect }) {
       </div>
       <div className="flex justify-between items-end border-t border-[#333] pt-2">
          <div>
-            <div className="text-gray-500 text-[10px] mb-0.5">预计日租</div>
+            <div className="text-gray-500 text-[10px] mb-0.5">日租</div>
             <div className="text-orange-500 font-bold text-sm">¥ {tDaily.toFixed(1)}</div>
          </div>
          <div className="text-right">
@@ -555,7 +565,7 @@ function CustomerCard({ cid, data, onSelect }) {
   );
 }
 
-// 沉浸式客户全屏详情组件
+// 沉浸式客户全屏详情组件 (含移动端响应式优化)
 function CustomerDetailView({ cid, data, onBack, onUpdateCustomer, onAddDevice, onDeleteCustomer, onUpdateOrder, onDeleteOrder, highlightedOrderId, computers, orders }) {
   let activeCount = 0, tDaily = 0, tAcc = 0;
   const today = new Date();
@@ -593,21 +603,58 @@ function CustomerDetailView({ cid, data, onBack, onUpdateCustomer, onAddDevice, 
       </div>
 
       <div className="bg-[#1e2024] rounded-xl border border-[#3c3f41] overflow-hidden shadow-xl">
-        <div className="p-4 md:p-6 bg-[#262930] flex flex-col md:flex-row md:items-center justify-between border-b border-[#333842] gap-4">
-          <div className="flex flex-wrap items-center gap-4">
-            <input type="text" value={data.name} onChange={(e) => onUpdateCustomer(cid, 'customerName', e.target.value)} 
-              placeholder="客户姓名" className="w-32 bg-[#1a1c20] text-white px-3 py-2 rounded border border-gray-700 outline-none font-bold" />
-            <input type="text" value={data.phone} onChange={(e) => onUpdateCustomer(cid, 'phone', e.target.value)} 
-              placeholder="电话" className="w-36 bg-[#1a1c20] text-white px-3 py-2 rounded border border-gray-700 outline-none" />
-            <button onClick={() => onAddDevice(cid, data.name, data.phone, data.address)} className="w-10 h-10 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-white flex items-center justify-center transition shadow-lg">
-              <Plus size={20} />
-            </button>
+        <div className="p-4 md:p-6 bg-[#262930] flex flex-col gap-5 border-b border-[#333842]">
+          
+          <div className="flex flex-col lg:flex-row justify-between gap-5">
+            {/* 基础信息录入区 - 手机端单列自适应，PC横向排列 */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4 flex-1">
+              <div className="flex items-center gap-3">
+                <span className="text-gray-500 text-sm font-bold w-10 shrink-0">姓名</span>
+                <input type="text" value={data.name || ''} onChange={(e) => onUpdateCustomer(cid, 'customerName', e.target.value)} 
+                  className="flex-1 min-w-0 bg-[#1a1c20] text-white px-3 py-2 rounded border border-gray-700 outline-none font-bold" placeholder="客户姓名" />
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="text-gray-500 text-sm font-bold w-10 shrink-0">电话</span>
+                <input type="text" value={data.phone || ''} onChange={(e) => onUpdateCustomer(cid, 'phone', e.target.value)} 
+                  className="flex-1 min-w-0 bg-[#1a1c20] text-white px-3 py-2 rounded border border-gray-700 outline-none" placeholder="联系电话" />
+              </div>
+              <div className="flex items-center gap-3 sm:col-span-2 lg:col-span-1">
+                <span className="text-gray-500 text-sm font-bold w-10 shrink-0">地址</span>
+                <input type="text" value={data.address || ''} onChange={(e) => onUpdateCustomer(cid, 'address', e.target.value)} 
+                  className="flex-1 min-w-0 bg-[#1a1c20] text-white px-3 py-2 rounded border border-gray-700 outline-none" placeholder="详细地址" />
+              </div>
+            </div>
+            
+            {/* KPI 指标区 */}
+            <div className="flex items-center justify-between sm:justify-start gap-4 bg-[#1a1c20] p-3 rounded-lg shrink-0">
+               <div className="text-center px-1"><div className="text-gray-500 text-[10px] md:text-xs mb-1">在租设备</div><div className="text-blue-400 font-bold text-sm md:text-base">{activeCount} 台</div></div>
+               <div className="w-px h-6 bg-gray-700 mx-1"></div>
+               <div className="text-center px-1"><div className="text-gray-500 text-[10px] md:text-xs mb-1">日租</div><div className="text-orange-500 font-bold text-sm md:text-base">¥{tDaily.toFixed(1)}</div></div>
+               <div className="w-px h-6 bg-gray-700 mx-1"></div>
+               <div className="text-center px-1"><div className="text-gray-500 text-[10px] md:text-xs mb-1">累计收益</div><div className="text-emerald-500 font-bold text-sm md:text-base">¥{tAcc.toFixed(1)}</div></div>
+            </div>
           </div>
-          <div className="flex flex-wrap items-center gap-6 bg-[#1a1c20] p-3 rounded-lg">
-            <div className="text-center"><div className="text-gray-500 text-xs mb-1">在租设备</div><div className="text-blue-400 font-bold">{activeCount} 台</div></div>
-            <div className="text-center"><div className="text-gray-500 text-xs mb-1">有效日租</div><div className="text-orange-500 font-bold">¥{tDaily.toFixed(1)}</div></div>
-            <div className="text-center"><div className="text-gray-500 text-xs mb-1">累计收益</div><div className="text-emerald-500 font-bold">¥{tAcc.toFixed(1)}</div></div>
-            <button onClick={() => { if(window.confirm("确定删除该客户及其所有订单？")) onDeleteCustomer(cid); }} className="ml-2 text-red-500 p-2 border border-red-500/30 hover:bg-red-500 hover:text-white rounded-lg transition"><Trash2 size={16} /></button>
+
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-5 border-t border-[#333842] pt-4 mt-1">
+             {/* 客户图像附件档案槽 */}
+             <div className="w-full md:w-auto">
+                <span className="text-gray-400 text-xs md:text-sm font-bold mb-3 block">客户档案附件 (点击存入身份证/执照截图)</span>
+                <div className="grid grid-cols-4 gap-2 md:gap-3 w-full max-w-md">
+                   <ImageUploadSlot label="附件1" image={data.img1} onUpload={(b) => onUpdateCustomer(cid, 'img1', b)} onRemove={() => onUpdateCustomer(cid, 'img1', '')} />
+                   <ImageUploadSlot label="附件2" image={data.img2} onUpload={(b) => onUpdateCustomer(cid, 'img2', b)} onRemove={() => onUpdateCustomer(cid, 'img2', '')} />
+                   <ImageUploadSlot label="附件3" image={data.img3} onUpload={(b) => onUpdateCustomer(cid, 'img3', b)} onRemove={() => onUpdateCustomer(cid, 'img3', '')} />
+                   <ImageUploadSlot label="附件4" image={data.img4} onUpload={(b) => onUpdateCustomer(cid, 'img4', b)} onRemove={() => onUpdateCustomer(cid, 'img4', '')} />
+                </div>
+             </div>
+
+             <div className="flex flex-col sm:flex-row w-full md:w-auto items-center gap-3">
+                <button onClick={() => onAddDevice(cid, data.name, data.phone, data.address)} className="w-full sm:w-auto flex justify-center items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-white font-bold transition shadow-lg">
+                  <Plus size={18} /> 新增设备订单
+                </button>
+                <button onClick={() => { if(window.confirm("确定删除该客户及其所有订单？")) onDeleteCustomer(cid); }} className="w-full sm:w-auto flex justify-center items-center gap-2 px-5 py-2.5 text-red-500 border border-red-500/30 hover:bg-red-500 hover:text-white rounded-lg transition font-bold">
+                  <Trash2 size={18} /> 删除该客户
+                </button>
+             </div>
           </div>
         </div>
         
