@@ -781,92 +781,6 @@ function CalendarTab({ orders }) {
   );
 }
 
-// ===============================================
-// 优化后的块状折叠设备资料组件
-// ===============================================
-function EquipmentCard({ c, orders, onUpdate, onDelete }) {
-  const [expanded, setExpanded] = useState(false);
-  const isRented = c.status === 'rented';
-
-  let machineEarned = 0; 
-  const today = new Date();
-  orders.filter(o => o.computerSn === c.sn).forEach(o => {
-    const d = Number(o.days) || 30, totD = d + (Number(o.renewMonths) || 0) * 30;
-    let el = o.startDate ? Math.max(0, Math.floor((today - new Date(o.startDate)) / 86400000)) : 0;
-    machineEarned += (d > 0 ? (Number(o.monthlyRent) || 0) / d : 0) * Math.min(el, totD);
-  });
-  const mRoi = (Number(c.cost) || 0) > 0 ? Math.min(machineEarned / Number(c.cost), 1) : 0;
-
-  return (
-    <div className="bg-[#1e2024] rounded-xl border border-[#3c3f41] overflow-hidden shadow-sm hover:border-gray-500 transition-colors h-fit">
-      {/* 默认收起的头部 - 极简显示编号和状态 */}
-      <div onClick={() => setExpanded(!expanded)} className={`cursor-pointer select-none group relative flex transition-all duration-300 ${expanded ? 'p-4 justify-between items-center border-b border-[#333]' : 'flex-col justify-center items-center h-36'}`}>
-        
-        <div className={`flex items-center gap-3 transition-transform duration-300 ${expanded ? '' : 'scale-125'}`}>
-          <div className={`rounded-full ${isRented ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)] animate-pulse' : 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]'} ${expanded ? 'w-2 h-2' : 'w-3 h-3'}`}></div>
-          <span className={`font-bold text-white group-hover:text-blue-400 transition-colors tracking-wider ${expanded ? 'text-lg' : 'text-xl'}`}>{c.sn || '未命名'}</span>
-        </div>
-
-        {expanded ? (
-          <ChevronDown className="text-gray-500 rotate-180 transition-transform duration-300" size={18} />
-        ) : (
-          <div className="absolute bottom-4 text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity">
-             <ChevronDown size={18}/>
-          </div>
-        )}
-      </div>
-
-      {/* 点击后展开的详细资料与图片卡槽 */}
-      {expanded && (
-        <div className="p-4 space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
-          
-          {/* ROI & 收益条 */}
-          <div className="flex items-center gap-3">
-             <span className="text-gray-400 text-xs w-10">收益</span>
-             <div className="flex-1 bg-gray-800 h-5 rounded-md relative overflow-hidden flex items-center justify-center">
-                <div className="absolute left-0 top-0 bottom-0 bg-emerald-600/80 transition-all duration-500" style={{width: `${mRoi * 100}%`}}></div>
-                <span className="relative text-[10px] font-bold text-white z-10 tracking-wider">¥ {machineEarned.toFixed(1)}</span>
-             </div>
-          </div>
-
-          {/* 硬件配置输入网格 */}
-          <div className="bg-[#1a1c20] p-3 rounded-lg grid grid-cols-2 gap-3 text-xs">
-            <div className="flex items-center gap-2"><span className="text-gray-500 w-8">CPU</span><input type="text" value={c.cpu || ''} onChange={e=>onUpdate(c.id, 'cpu', e.target.value)} className="flex-1 bg-[#2b2d33] text-white px-2 py-1.5 rounded outline-none" /></div>
-            <div className="flex items-center gap-2"><span className="text-gray-500 w-8">显卡</span><input type="text" value={c.gpu || ''} onChange={e=>onUpdate(c.id, 'gpu', e.target.value)} className="flex-1 bg-[#2b2d33] text-white px-2 py-1.5 rounded outline-none" /></div>
-            <div className="flex items-center gap-2"><span className="text-gray-500 w-8">内存</span><input type="text" value={c.ram || ''} onChange={e=>onUpdate(c.id, 'ram', e.target.value)} className="flex-1 bg-[#2b2d33] text-white px-2 py-1.5 rounded outline-none" /></div>
-            <div className="flex items-center gap-2"><span className="text-gray-500 w-8">固态</span><input type="text" value={c.ssd || ''} onChange={e=>onUpdate(c.id, 'ssd', e.target.value)} className="flex-1 bg-[#2b2d33] text-white px-2 py-1.5 rounded outline-none" /></div>
-            <div className="col-span-2 mt-2 pt-3 border-t border-[#333] flex items-center gap-2"><span className="text-gray-400 font-bold">采购成本:</span><input type="number" value={c.cost || ''} onChange={e=>onUpdate(c.id, 'cost', e.target.value)} className="flex-1 bg-[#2b2d33] text-blue-400 font-bold px-2 py-1.5 rounded outline-none" /></div>
-          </div>
-
-          {/* 4张图片导入卡槽 */}
-          <div>
-             <span className="text-gray-400 text-xs font-bold mb-2 block">设备档案图 (点击上传)</span>
-             <div className="grid grid-cols-4 gap-2">
-                {['img1', 'img2', 'img3', 'img4'].map((imgKey, i) => (
-                   <ImageUploadSlot 
-                     key={imgKey} 
-                     label={`外观${i+1}`} 
-                     image={c[imgKey]} 
-                     onUpload={(b64) => onUpdate(c.id, imgKey, b64)} 
-                     onRemove={() => onUpdate(c.id, imgKey, '')} 
-                   />
-                ))}
-             </div>
-          </div>
-
-          {/* 底部操作栏 */}
-          <div className="flex justify-between items-center mt-4 pt-3 border-t border-[#333]">
-             <input type="text" value={c.sn || ''} onChange={e=>onUpdate(c.id, 'sn', e.target.value)} className="w-24 bg-[#111] text-white px-2 py-1.5 rounded border border-gray-700 font-bold outline-none text-xs" placeholder="修改编号" />
-             <button onClick={() => onDelete(c.id, c.sn)} className="flex items-center gap-1 px-3 py-1.5 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded transition text-xs border border-red-500/30">
-                <Trash2 size={12} /> 删除该机
-             </button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 // 独立的图片上传卡槽组件 (转为Base64存入云端)
 function ImageUploadSlot({ label, image, onUpload, onRemove }) {
   const handleFile = (e) => {
@@ -934,6 +848,8 @@ function ImageUploadSlot({ label, image, onUpload, onRemove }) {
 }
 
 function EquipmentTab({ computers, orders, isCloudMode, user, db, appId }) {
+  const [selectedId, setSelectedId] = useState(null);
+
   let totalCost = 0, totalEarned = 0;
   computers.forEach(c => totalCost += (Number(c.cost) || 0));
   orders.forEach(o => totalEarned += (Number(o.paidRent) || 0));
@@ -946,10 +862,94 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId }) {
     const maxNum = Math.max(0, ...existingSns.map(sn => parseInt(sn.substring(1)) || 0));
     await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'computers'), { sn: `A${String(maxNum + 1).padStart(2, '0')}`, cpu: '', gpu: '', ram: '', ssd: '', cost: 0, status: 'available', img1: '', img2: '', img3: '', img4: '' });
   };
+
   const handleUpdateComputer = async (id, field, value) => { if (isCloudMode && user) await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'computers', id), { [field]: value }, { merge: true }); };
-  const handleDeleteComputer = async (id, sn) => { if (window.confirm(`确定删除设备 ${sn} 吗？`) && isCloudMode && user) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'computers', id)); };
+
+  const handleDeleteComputer = async (id, sn) => { 
+    if (window.confirm(`确定删除设备 ${sn} 吗？`) && isCloudMode && user) {
+      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'computers', id)); 
+      if (selectedId === id) setSelectedId(null);
+    }
+  };
 
   const sortedComputers = [...computers].sort((a, b) => (a.sn || "").localeCompare(b.sn || "", undefined, { numeric: true }));
+  const selectedComp = useMemo(() => computers.find(c => c.id === selectedId), [computers, selectedId]);
+
+  if (selectedComp) {
+    const c = selectedComp;
+    const isRented = c.status === 'rented';
+    let machineEarned = 0; 
+    const today = new Date();
+    orders.filter(o => o.computerSn === c.sn).forEach(o => {
+      const d = Number(o.days) || 30, totD = d + (Number(o.renewMonths) || 0) * 30;
+      let el = o.startDate ? Math.max(0, Math.floor((today - new Date(o.startDate)) / 86400000)) : 0;
+      machineEarned += (d > 0 ? (Number(o.monthlyRent) || 0) / d : 0) * Math.min(el, totD);
+    });
+    const mRoi = (Number(c.cost) || 0) > 0 ? Math.min(machineEarned / Number(c.cost), 1) : 0;
+
+    return (
+      <div className="pb-20 animate-in fade-in slide-in-from-right-4 duration-300">
+        <div className="mb-6 flex items-center gap-4">
+          <button onClick={() => setSelectedId(null)} className="bg-gray-800 hover:bg-gray-700 text-white px-3 py-1.5 rounded-lg flex items-center transition">
+            <ChevronLeft size={16} className="mr-1"/> 返回设备库
+          </button>
+          <h2 className="text-xl md:text-2xl font-bold text-white flex items-center gap-3">
+            {c.sn || '未命名'}
+            <span className={`px-2 py-1 rounded text-sm font-bold ${isRented ? 'bg-red-500/20 text-red-400' : 'bg-emerald-500/20 text-emerald-400'}`}>
+              {isRented ? '在租中' : '空闲'}
+            </span>
+          </h2>
+        </div>
+
+        <div className="bg-[#1e2024] rounded-xl border border-[#3c3f41] p-6 shadow-xl max-w-4xl space-y-8">
+          {/* ROI & 收益条 */}
+          <div className="flex items-center gap-4">
+             <span className="text-gray-400 font-bold w-12">收益</span>
+             <div className="flex-1 bg-gray-800 h-6 rounded-md relative overflow-hidden flex items-center justify-center">
+                <div className="absolute left-0 top-0 bottom-0 bg-emerald-600/80 transition-all duration-500" style={{width: `${mRoi * 100}%`}}></div>
+                <span className="relative text-xs font-bold text-white z-10 tracking-wider">¥ {machineEarned.toFixed(1)}</span>
+             </div>
+          </div>
+
+          {/* 硬件配置输入网格 */}
+          <div className="bg-[#1a1c20] p-4 md:p-6 rounded-lg grid grid-cols-2 gap-4 text-sm">
+            <div className="flex items-center gap-3"><span className="text-gray-500 w-10">CPU</span><input type="text" value={c.cpu || ''} onChange={e=>handleUpdateComputer(c.id, 'cpu', e.target.value)} className="flex-1 bg-[#2b2d33] text-white px-3 py-2 rounded outline-none" /></div>
+            <div className="flex items-center gap-3"><span className="text-gray-500 w-10">显卡</span><input type="text" value={c.gpu || ''} onChange={e=>handleUpdateComputer(c.id, 'gpu', e.target.value)} className="flex-1 bg-[#2b2d33] text-white px-3 py-2 rounded outline-none" /></div>
+            <div className="flex items-center gap-3"><span className="text-gray-500 w-10">内存</span><input type="text" value={c.ram || ''} onChange={e=>handleUpdateComputer(c.id, 'ram', e.target.value)} className="flex-1 bg-[#2b2d33] text-white px-3 py-2 rounded outline-none" /></div>
+            <div className="flex items-center gap-3"><span className="text-gray-500 w-10">固态</span><input type="text" value={c.ssd || ''} onChange={e=>handleUpdateComputer(c.id, 'ssd', e.target.value)} className="flex-1 bg-[#2b2d33] text-white px-3 py-2 rounded outline-none" /></div>
+            <div className="col-span-2 mt-4 pt-4 border-t border-[#333] flex items-center gap-3"><span className="text-gray-400 font-bold">采购成本:</span><input type="number" value={c.cost || ''} onChange={e=>handleUpdateComputer(c.id, 'cost', e.target.value)} className="flex-1 bg-[#2b2d33] text-blue-400 font-bold px-3 py-2 rounded outline-none" /></div>
+          </div>
+
+          {/* 4张图片导入卡槽 */}
+          <div>
+             <span className="text-gray-400 text-sm font-bold mb-4 block">设备档案图 (点击上传)</span>
+             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {['img1', 'img2', 'img3', 'img4'].map((imgKey, i) => (
+                   <ImageUploadSlot 
+                     key={imgKey} 
+                     label={`外观${i+1}`} 
+                     image={c[imgKey]} 
+                     onUpload={(b64) => handleUpdateComputer(c.id, imgKey, b64)} 
+                     onRemove={() => handleUpdateComputer(c.id, imgKey, '')} 
+                   />
+                ))}
+             </div>
+          </div>
+
+          {/* 底部操作栏 */}
+          <div className="flex justify-between items-center mt-6 pt-4 border-t border-[#333]">
+             <div className="flex items-center gap-3">
+               <span className="text-gray-500 text-sm font-bold">修改编号</span>
+               <input type="text" value={c.sn || ''} onChange={e=>handleUpdateComputer(c.id, 'sn', e.target.value)} className="w-32 bg-[#111] text-white px-3 py-2 rounded border border-gray-700 font-bold outline-none" placeholder="设备编号" />
+             </div>
+             <button onClick={() => handleDeleteComputer(c.id, c.sn)} className="flex items-center gap-2 px-4 py-2 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-lg transition font-bold border border-red-500/30">
+                <Trash2 size={16} /> 删除该机
+             </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="pb-20">
@@ -964,17 +964,22 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId }) {
         <button onClick={handleAddComputer} className="bg-blue-600 hover:bg-blue-500 text-white px-5 py-2.5 rounded-xl font-bold shadow-lg shadow-blue-500/20 flex items-center gap-2 transition-transform active:scale-95"><Plus size={18} /> 新增空闲设备</button>
       </div>
 
-      {/* 修改点：块状折叠网格布局，加入 items-start 防止撑开同行其他高度 */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 items-start">
-        {sortedComputers.map(c => (
-           <EquipmentCard 
-             key={c.id} 
-             c={c} 
-             orders={orders} 
-             onUpdate={handleUpdateComputer} 
-             onDelete={handleDeleteComputer} 
-           />
-        ))}
+      <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 lg:gap-6 items-start">
+        {sortedComputers.map(c => {
+           const isRented = c.status === 'rented';
+           return (
+             <div 
+               key={c.id} 
+               onClick={() => setSelectedId(c.id)}
+               className="bg-[#1e2024] rounded-xl border border-[#3c3f41] flex flex-col justify-center items-center h-32 cursor-pointer hover:border-gray-500 transition-all hover:scale-105 shadow-sm group"
+             >
+               <div className="flex items-center gap-3 transition-transform duration-300">
+                 <div className={`w-3 h-3 rounded-full ${isRented ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)] animate-pulse' : 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]'}`}></div>
+                 <span className="font-bold text-white group-hover:text-blue-400 transition-colors tracking-wider text-xl">{c.sn || '未命名'}</span>
+               </div>
+             </div>
+           );
+        })}
       </div>
     </div>
   );
