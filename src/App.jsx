@@ -800,22 +800,25 @@ function EquipmentCard({ c, orders, onUpdate, onDelete }) {
   return (
     <div className="bg-[#1e2024] rounded-xl border border-[#3c3f41] overflow-hidden shadow-sm hover:border-gray-500 transition-colors h-fit">
       {/* 默认收起的头部 - 极简显示编号和状态 */}
-      <div onClick={() => setExpanded(!expanded)} className="p-4 cursor-pointer flex justify-between items-center select-none group">
-        <div className="flex items-center gap-3">
-          <div className={`w-1.5 h-6 rounded-full ${isRented ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]' : 'bg-emerald-500'}`}></div>
-          <span className="text-lg font-bold text-white group-hover:text-blue-400 transition-colors">{c.sn || '未命名'}</span>
+      <div onClick={() => setExpanded(!expanded)} className={`cursor-pointer select-none group relative flex transition-all duration-300 ${expanded ? 'p-4 justify-between items-center border-b border-[#333]' : 'flex-col justify-center items-center h-36'}`}>
+        
+        <div className={`flex items-center gap-3 transition-transform duration-300 ${expanded ? '' : 'scale-125'}`}>
+          <div className={`rounded-full ${isRented ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)] animate-pulse' : 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]'} ${expanded ? 'w-2 h-2' : 'w-3 h-3'}`}></div>
+          <span className={`font-bold text-white group-hover:text-blue-400 transition-colors tracking-wider ${expanded ? 'text-lg' : 'text-xl'}`}>{c.sn || '未命名'}</span>
         </div>
-        <div className="flex items-center gap-3">
-          <span className={`px-3 py-1 rounded text-xs font-bold ${isRented ? 'bg-red-500/20 text-red-400' : 'bg-emerald-500/20 text-emerald-400'}`}>
-            {isRented ? '在租中' : '空闲'}
-          </span>
-          <ChevronDown className={`text-gray-500 transition-transform duration-300 ${expanded ? 'rotate-180' : ''}`} size={18} />
-        </div>
+
+        {expanded ? (
+          <ChevronDown className="text-gray-500 rotate-180 transition-transform duration-300" size={18} />
+        ) : (
+          <div className="absolute bottom-4 text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity">
+             <ChevronDown size={18}/>
+          </div>
+        )}
       </div>
 
       {/* 点击后展开的详细资料与图片卡槽 */}
       {expanded && (
-        <div className="p-4 border-t border-[#333] space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
+        <div className="p-4 space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
           
           {/* ROI & 收益条 */}
           <div className="flex items-center gap-3">
@@ -962,7 +965,7 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId }) {
       </div>
 
       {/* 修改点：块状折叠网格布局，加入 items-start 防止撑开同行其他高度 */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 items-start">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 items-start">
         {sortedComputers.map(c => (
            <EquipmentCard 
              key={c.id} 
