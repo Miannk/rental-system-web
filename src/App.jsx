@@ -81,7 +81,7 @@ export default function App() {
   useEffect(() => {
     if (!isCloudMode) {
       const demoOrders = [
-        { id: '1', customerId: 'cust-1', customerName: '演示客户', phone: '13800000000', address: '本地模式', computerSn: 'DEMO-01', startDate: '2026-03-11', days: 30, monthlyRent: 300, paidRent: 300, renewMonths: 0, status: 'active', createdAt: Date.now() }
+        { id: '1', customerId: 'cust-1', customerName: '演示客户', phone: '13800000000', address: '本地模式', remark: '', computerSn: 'DEMO-01', startDate: '2026-03-11', days: 30, monthlyRent: 300, paidRent: 300, renewMonths: 0, status: 'active', createdAt: Date.now() }
       ];
       setOrders(demoOrders);
       setLoading(false);
@@ -135,7 +135,6 @@ export default function App() {
       const isInProgress = isActive && remD >= 0;
       const isCompleted = !isActive;
 
-      // --- 核心优化：防呆智能过滤 ---
       if (filter === '进行中' && !isInProgress) return;
       if (filter === '已超期' && !isOverdue) return;
       if (filter === '已结单' && !isCompleted) return;
@@ -152,6 +151,7 @@ export default function App() {
           name: o.customerName, 
           phone: o.phone, 
           address: o.address, 
+          remark: o.remark, 
           img1: o.img1, 
           img2: o.img2, 
           img3: o.img3, 
@@ -166,12 +166,10 @@ export default function App() {
       if (o.computerSn) {
         if (isActive) { 
           rentedComps++; 
-          // 仅当未超期时才算入整体的“有效日租金”
           if (remD >= 0) {
              totalDaily += dailyRate; 
           }
         }
-        // 收益计算依旧算满实际发生的有效天数
         totalRev += (dailyRate * Math.max(0, Math.min(el, totalDays)));
       }
     });
@@ -199,7 +197,6 @@ export default function App() {
   // --- 跨页面高亮与自动展开 ---
   useEffect(() => {
     if (activeTab === 'rental' && highlightedOrderId) {
-      // 找到包含该订单的客户
       const foundEntry = sortedCustomerEntries.find(([cid, data]) => data.orders.some(o => o.id === highlightedOrderId));
       if (foundEntry) {
          setSelectedCustomerId(foundEntry[0]);
@@ -247,7 +244,7 @@ export default function App() {
           for (const item of jsonData.orders) {
             const webOrder = {
               customerId: item.customer_id || `import-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-              customerName: item.customer_name || '', phone: item.phone || '', address: item.address || '',
+              customerName: item.customer_name || '', phone: item.phone || '', address: item.address || '', remark: item.remark || '',
               computerSn: item.computer_sn || '', startDate: item.start_date || new Date().toISOString().split('T')[0],
               days: Number(item.days) || 30, monthlyRent: Number(item.monthly_rent) || 0,
               paidRent: Number(item.paid_rent) || 0, renewMonths: Number(item.renew_months) || 0,
@@ -297,7 +294,6 @@ export default function App() {
           if (newC) await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'computers', newC.id), { status: 'rented' }, { merge: true });
         }
       } else if (field === 'status' && oldOrder && oldOrder.computerSn) {
-         // 一键结单/恢复 自动释放设备
          const comp = computers.find(c => c.sn === oldOrder.computerSn);
          if (comp) {
             const newStatus = value === 'active' ? 'rented' : 'available';
@@ -337,7 +333,7 @@ export default function App() {
   const handleAddCustomer = async () => {
     const cid = `cust-${Date.now()}`;
     const newOrder = {
-      customerId: cid, customerName: '新客户', phone: '', address: '',
+      customerId: cid, customerName: '新客户', phone: '', address: '', remark: '',
       computerSn: '', startDate: new Date().toISOString().split('T')[0], days: 30, monthlyRent: 0, paidRent: 0, renewMonths: 0, status: 'active',
       img1: '', img2: '', img3: '', img4: '',
       createdAt: Date.now() 
@@ -347,13 +343,12 @@ export default function App() {
     } else {
       setOrders(prev => [...prev, { id: Date.now().toString(), ...newOrder }]);
     }
-    // 添加后自动跳转到该客户详情
     setSelectedCustomerId(cid);
   };
 
-  const handleAddDevice = async (customerId, customerName, phone, address) => {
+  const handleAddDevice = async (customerId, customerName, phone, address, remark) => {
     const newOrder = {
-      customerId, customerName, phone, address,
+      customerId, customerName, phone, address, remark: remark || '',
       computerSn: '', startDate: new Date().toISOString().split('T')[0], days: 30, monthlyRent: 0, paidRent: 0, renewMonths: 0, status: 'active',
       img1: '', img2: '', img3: '', img4: '',
       createdAt: Date.now()
@@ -371,7 +366,6 @@ export default function App() {
     
     if (isCloudMode) {
       await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'orders', id));
-      // 如果删除正在租的订单，连带释放设备
       if (orderToDelete && orderToDelete.computerSn && orderToDelete.status === 'active') {
          const comp = computers.find(c => c.sn === orderToDelete.computerSn);
          if (comp) await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'computers', comp.id), { status: 'available' }, { merge: true });
@@ -397,7 +391,6 @@ export default function App() {
       }
     } else {
       setOrders(prev => prev.filter(o => o.customerId !== customerId));
-      // 简化本地模式的关联删除
       setComputers(prev => prev.map(c => {
          const matchedOrder = customerOrders.find(o => o.computerSn === c.sn && o.status === 'active');
          return matchedOrder ? {...c, status: 'available'} : c;
@@ -468,7 +461,6 @@ export default function App() {
                   <div className="flex items-center gap-3">
                     <h1 className="text-xl md:text-2xl font-bold text-white whitespace-nowrap">合同与流转</h1>
                     <div className="bg-gray-800 p-1 rounded-lg flex space-x-1 text-sm">
-                      {/* --- 修改：增加四个状态分类，完美匹配真实需求 --- */}
                       {['全部', '进行中', '已超期', '已结单'].map(f => (
                         <button key={f} onClick={() => setFilter(f)} className={`px-3 py-1 rounded-md transition ${filter === f ? 'bg-blue-600 text-white' : 'text-gray-400'}`}>{f}</button>
                       ))}
@@ -657,23 +649,32 @@ function CustomerDetailView({ cid, data, onBack, onUpdateCustomer, onAddDevice, 
         <div className="p-4 md:p-6 bg-[#262930] flex flex-col gap-5 border-b border-[#333842]">
           
           <div className="flex flex-col lg:flex-row justify-between gap-5">
-            {/* 基础信息录入区 - 手机端单列自适应，PC横向排列 */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4 flex-1">
-              <div className="flex items-center gap-3">
-                <span className="text-gray-500 text-sm font-bold w-10 shrink-0">姓名</span>
-                <input type="text" value={data.name || ''} onChange={(e) => onUpdateCustomer(cid, 'customerName', e.target.value)} 
-                  className="flex-1 min-w-0 bg-[#1a1c20] text-white px-3 py-2 rounded border border-gray-700 outline-none font-bold" placeholder="客户姓名" />
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="text-gray-500 text-sm font-bold w-10 shrink-0">电话</span>
-                <input type="text" value={data.phone || ''} onChange={(e) => onUpdateCustomer(cid, 'phone', e.target.value)} 
-                  className="flex-1 min-w-0 bg-[#1a1c20] text-white px-3 py-2 rounded border border-gray-700 outline-none" placeholder="联系电话" />
-              </div>
-              <div className="flex items-center gap-3 sm:col-span-2 lg:col-span-1">
-                <span className="text-gray-500 text-sm font-bold w-10 shrink-0">地址</span>
-                <input type="text" value={data.address || ''} onChange={(e) => onUpdateCustomer(cid, 'address', e.target.value)} 
-                  className="flex-1 min-w-0 bg-[#1a1c20] text-white px-3 py-2 rounded border border-gray-700 outline-none" placeholder="详细地址" />
-              </div>
+            {/* 基础信息录入区 - 手机端单列自适应，加入备注属性，上下排布 */}
+            <div className="flex flex-col gap-3 md:gap-4 flex-1">
+               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
+                 <div className="flex items-center gap-3">
+                   <span className="text-gray-500 text-sm font-bold w-10 shrink-0">姓名</span>
+                   <input type="text" value={data.name || ''} onChange={(e) => onUpdateCustomer(cid, 'customerName', e.target.value)} 
+                     className="flex-1 min-w-0 bg-[#1a1c20] text-white px-3 py-2 rounded border border-gray-700 outline-none font-bold" placeholder="客户姓名" />
+                 </div>
+                 <div className="flex items-center gap-3">
+                   <span className="text-gray-500 text-sm font-bold w-10 shrink-0">电话</span>
+                   <input type="text" value={data.phone || ''} onChange={(e) => onUpdateCustomer(cid, 'phone', e.target.value)} 
+                     className="flex-1 min-w-0 bg-[#1a1c20] text-white px-3 py-2 rounded border border-gray-700 outline-none" placeholder="联系电话" />
+                 </div>
+                 <div className="flex items-center gap-3 sm:col-span-2 lg:col-span-1">
+                   <span className="text-gray-500 text-sm font-bold w-10 shrink-0">地址</span>
+                   <input type="text" value={data.address || ''} onChange={(e) => onUpdateCustomer(cid, 'address', e.target.value)} 
+                     className="flex-1 min-w-0 bg-[#1a1c20] text-white px-3 py-2 rounded border border-gray-700 outline-none" placeholder="详细地址" />
+                 </div>
+               </div>
+               
+               {/* 备注专属横条 */}
+               <div className="flex items-center gap-3">
+                 <span className="text-gray-500 text-sm font-bold w-10 shrink-0">备注</span>
+                 <input type="text" value={data.remark || ''} onChange={(e) => onUpdateCustomer(cid, 'remark', e.target.value)} 
+                   className="flex-1 min-w-0 bg-[#1a1c20] text-white px-3 py-2 rounded border border-gray-700 outline-none" placeholder="可记录特殊情况、押金或身份证明信息等..." />
+               </div>
             </div>
             
             {/* KPI 指标区 */}
@@ -699,7 +700,7 @@ function CustomerDetailView({ cid, data, onBack, onUpdateCustomer, onAddDevice, 
              </div>
 
              <div className="flex flex-col sm:flex-row w-full md:w-auto items-center gap-3">
-                <button onClick={() => onAddDevice(cid, data.name, data.phone, data.address)} className="w-full sm:w-auto flex justify-center items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-white font-bold transition shadow-lg">
+                <button onClick={() => onAddDevice(cid, data.name, data.phone, data.address, data.remark)} className="w-full sm:w-auto flex justify-center items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-white font-bold transition shadow-lg">
                   <Plus size={18} /> 新增设备订单
                 </button>
                 <button onClick={() => { if(window.confirm("确定彻底删除该客户及其所有订单记录？（相关设备会自动恢复为空闲）")) onDeleteCustomer(cid); }} className="w-full sm:w-auto flex justify-center items-center gap-2 px-5 py-2.5 text-red-500 border border-red-500/30 hover:bg-red-500 hover:text-white rounded-lg transition font-bold">
@@ -799,7 +800,8 @@ function HomeTab({ orders, onJump }) {
     let el = o.startDate ? Math.floor((today - new Date(o.startDate)) / 86400000) : 0;
     const remD = totalDays - el;
     
-    if (remD <= 3) {
+    // 【核心修改】只保留 0~3 天快到期的订单，自动屏蔽已超期（<0）的无效干扰！
+    if (remD >= 0 && remD <= 3) {
       const expDate = new Date(o.startDate); expDate.setDate(expDate.getDate() + totalDays);
       if (!expiringGroups[o.customerId]) expiringGroups[o.customerId] = { cust: o.customerName, phone: o.phone, minRem: remD, devices: [] };
       if (remD < expiringGroups[o.customerId].minRem) expiringGroups[o.customerId].minRem = remD;
@@ -812,13 +814,15 @@ function HomeTab({ orders, onJump }) {
     <div className="pb-20">
       <div className="mb-6"><h1 className="text-xl md:text-2xl font-bold text-white">近期待办事项</h1></div>
       {sortedTodos.length === 0 ? (
-        <div className="text-center text-gray-500 py-20 bg-[#22252b] rounded-xl border border-gray-800 text-lg">🎉 当前没有即将到期(≤3天)的订单，一切尽在掌握！</div>
+        <div className="text-center text-gray-500 py-20 bg-[#22252b] rounded-xl border border-gray-800 text-lg">🎉 当前没有即将到期的订单，一切尽在掌握！</div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
           {sortedTodos.map((t, i) => (
-            <div key={i} className={`bg-[#2b2b2b] rounded-xl border ${t.minRem <= 3 && t.minRem > 0 ? 'border-orange-500' : 'border-red-500'} p-5 shadow-lg relative group`}>
+            <div key={i} className={`bg-[#2b2b2b] rounded-xl border border-orange-500 p-5 shadow-lg relative group`}>
               <div className="flex justify-between items-center mb-4 border-b border-gray-700 pb-3">
-                <span className={`font-bold text-lg ${t.minRem < 0 ? 'text-red-500' : 'text-orange-500'}`}>{t.minRem < 0 ? `🚨 已超期 ${Math.abs(t.minRem)} 天` : `⚠️ 最快 ${t.minRem} 天到期`}</span>
+                <span className={`font-bold text-lg text-orange-500`}>
+                  {t.minRem === 0 ? '⚠️ 今天到期' : `⚠️ 最快剩 ${t.minRem} 天到期`}
+                </span>
                 <span className="text-gray-400 text-sm">共 {t.devices.length} 台</span>
               </div>
               <div className="space-y-2 text-sm">
@@ -829,8 +833,8 @@ function HomeTab({ orders, onJump }) {
                   <div className="flex-1 flex flex-col space-y-1.5">
                     {t.devices.map((d, di) => (
                       <div key={di} className="flex items-center bg-[#1f1f1f] px-2 py-1.5 rounded border border-gray-800">
-                        <span className={`font-bold ${d.remD <= 3 && d.remD >= 0 ? 'text-blue-400' : 'text-red-500'}`}>
-                          {d.sn} {d.remD < 0 ? `(超${Math.abs(d.remD)}天)` : `(剩${d.remD}天)`}
+                        <span className={`font-bold ${d.remD === 0 ? 'text-orange-400' : 'text-blue-400'}`}>
+                          {d.sn} (剩{d.remD}天)
                         </span>
                       </div>
                     ))}
