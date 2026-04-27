@@ -592,8 +592,8 @@ function CustomerCard({ cid, data, onSelect }) {
       ? <div className="text-[10px] font-bold px-2 py-1 rounded shrink-0 bg-blue-500/20 text-blue-400">在租 {activeCount}</div>
       : <div className="text-[10px] font-bold px-2 py-1 rounded shrink-0 bg-gray-700 text-gray-400">空闲</div>;
 
-  // 进度条颜色计算
-  const barColor = overdueCount > 0 ? "bg-red-500" : (fastestRemD <= 3 ? "bg-orange-500" : "bg-emerald-500");
+  // 进度条颜色计算 (剩余天数 >=3 绿色，<3 红色)
+  const barColor = fastestRemD < 3 ? "bg-red-500" : "bg-emerald-500";
 
   return (
     <div onClick={() => onSelect(cid)} className="bg-[#1e2024] rounded-xl border border-[#3c3f41] p-4 cursor-pointer hover:border-gray-500 transition-all hover:scale-105 shadow-sm group relative flex flex-col h-40">
@@ -618,7 +618,7 @@ function CustomerCard({ cid, data, onSelect }) {
 
       {/* 底部极简进度条 */}
       {activeCount > 0 && (
-         <div className="w-full bg-gray-900 h-1.5 rounded-full overflow-hidden mt-auto">
+         <div className="w-full bg-gray-900 h-1 rounded-full overflow-hidden mt-auto">
             <div className={`h-full ${barColor}`} style={{ width: `${fastestRatio * 100}%` }}></div>
          </div>
       )}
@@ -757,7 +757,9 @@ function OrderRow({ order, onUpdate, onDelete, isHighlighted, computers, orders 
     expireStr = expDate.toISOString().split('T')[0];
   }
   const progressRatio = totalDays > 0 ? Math.min(Math.max(0, el) / totalDays, 1) : 0;
-  const barColor = !isActive ? "bg-gray-600" : (remD < 0 ? "bg-red-600" : (remD <= 3 ? "bg-orange-500" : "bg-emerald-500"));
+  
+  // 进度条颜色判定逻辑: <3天 红色, 否则 绿色
+  const barColor = !isActive ? "bg-gray-600" : (remD < 3 ? "bg-red-500" : "bg-emerald-500");
   
   // 对于超期的设备，日收益一栏直接显示0，防止财务误解
   const effectiveDailyRate = (isActive && remD >= 0) ? dailyRate : 0;
@@ -790,7 +792,7 @@ function OrderRow({ order, onUpdate, onDelete, isHighlighted, computers, orders 
         </select>
       </div>
       <div className="col-span-2 px-1">
-        <div className="w-full bg-gray-900 h-1.5 rounded-full overflow-hidden mb-1"><div className={`h-full ${barColor}`} style={{ width: `${progressRatio * 100}%` }}></div></div>
+        <div className="w-full bg-gray-900 h-1 rounded-full overflow-hidden mb-1"><div className={`h-full ${barColor}`} style={{ width: `${progressRatio * 100}%` }}></div></div>
         <div className="flex justify-between text-[8px] font-bold text-gray-500 uppercase">
            <span>{remD < 0 ? `超期 ${Math.abs(Math.floor(remD))} 天` : `剩 ${Math.floor(remD)} 天`}</span>
            <span>到期:{expireStr}</span>
@@ -1084,6 +1086,14 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId }) {
   if (selectedComp) {
     const c = selectedComp;
     const isRented = c.status === 'rented';
+    let machineEarned = 0; 
+    const today = new Date();
+    orders.filter(o => o.computerSn === c.sn).forEach(o => {
+      const d = Number(o.days) || 30, totD = d + (Number(o.renewMonths) || 0) * 30;
+      let el = o.startDate ? Math.max(0, Math.floor((today - new Date(o.startDate)) / 86400000)) : 0;
+      machineEarned += (d > 0 ? (Number(o.monthlyRent) || 0) / d : 0) * Math.min(el, totD);
+    });
+    const mRoi = (Number(c.cost) || 0) > 0 ? Math.min(machineEarned / Number(c.cost), 1) : 0;
 
     return (
       <div className="pb-20 animate-in fade-in slide-in-from-right-4 duration-300">
@@ -1105,6 +1115,7 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId }) {
             <div className="flex items-center gap-3"><span className="text-gray-500 w-10 shrink-0">显卡</span><input type="text" value={c.gpu || ''} onChange={e=>handleUpdateComputer(c.id, 'gpu', e.target.value)} className="flex-1 min-w-0 bg-[#2b2d33] text-white px-3 py-2 rounded outline-none" /></div>
             <div className="flex items-center gap-3"><span className="text-gray-500 w-10 shrink-0">内存</span><input type="text" value={c.ram || ''} onChange={e=>handleUpdateComputer(c.id, 'ram', e.target.value)} className="flex-1 min-w-0 bg-[#2b2d33] text-white px-3 py-2 rounded outline-none" /></div>
             <div className="flex items-center gap-3"><span className="text-gray-500 w-10 shrink-0">固态</span><input type="text" value={c.ssd || ''} onChange={e=>handleUpdateComputer(c.id, 'ssd', e.target.value)} className="flex-1 min-w-0 bg-[#2b2d33] text-white px-3 py-2 rounded outline-none" /></div>
+            <div className="col-span-1 md:col-span-2 mt-2 md:mt-4 pt-4 border-t border-[#333] flex items-center gap-3"><span className="text-gray-400 font-bold shrink-0">采购成本:</span><input type="number" value={c.cost || ''} onChange={e=>handleUpdateComputer(c.id, 'cost', e.target.value)} className="flex-1 min-w-0 bg-[#2b2d33] text-blue-400 font-bold px-3 py-2 rounded outline-none" /></div>
           </div>
 
           <div>
@@ -1135,6 +1146,12 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId }) {
       </div>
     );
   }
+
+  let totalCost = 0, totalEarned = 0;
+  computers.forEach(c => totalCost += (Number(c.cost) || 0));
+  orders.forEach(o => totalEarned += (Number(o.paidRent) || 0));
+  const totalRoi = totalCost > 0 ? (totalEarned / totalCost) : 0;
+  const roiColor = totalRoi >= 1.0 ? "#2FA572" : "#3B8ED0";
 
   return (
     <div className="pb-20">
@@ -1169,15 +1186,14 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId }) {
                  <span className="font-bold text-white group-hover:text-blue-400 transition-colors tracking-wider text-base md:text-xl truncate">{c.sn || '未命名'}</span>
                </div>
                
-               {/* 下半部分：简化的成本与收益财务微型条 */}
-               <div className="flex justify-between w-full text-[10px] md:text-xs border-t border-[#333] pt-2 mt-1 opacity-80 group-hover:opacity-100 transition-opacity">
-                 <div className="flex flex-col">
-                   <span className="text-gray-500 mb-0.5 scale-90 origin-left">成本</span>
-                   <span className="text-blue-400 font-mono font-bold">{costVal.toFixed(0)}</span>
+               {/* 下半部分：简化的成本与收益进度条 */}
+               <div className="w-full mt-auto pt-2 border-t border-[#333] opacity-80 group-hover:opacity-100 transition-opacity">
+                 <div className="flex justify-between items-end text-[9px] mb-1 px-0.5">
+                    <span className="text-gray-500 scale-90 origin-left">成本: <span className="text-blue-400">{costVal.toFixed(0)}</span></span>
+                    <span className="text-gray-500 scale-90 origin-right"><span className={machineEarned >= costVal ? "text-emerald-500" : "text-red-500"}>{machineEarned.toFixed(0)}</span> / {costVal.toFixed(0)} 收益</span>
                  </div>
-                 <div className="flex flex-col text-right">
-                   <span className="text-gray-500 mb-0.5 scale-90 origin-right">收益</span>
-                   <span className="text-emerald-500 font-mono font-bold">{machineEarned.toFixed(0)}</span>
+                 <div className="w-full bg-gray-800 h-1 rounded-full overflow-hidden">
+                   <div className={`h-full ${machineEarned >= costVal ? 'bg-emerald-500' : 'bg-red-500'}`} style={{ width: `${Math.min((machineEarned / (costVal || 1)) * 100, 100)}%` }}></div>
                  </div>
                </div>
              </div>
