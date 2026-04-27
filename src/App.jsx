@@ -1146,15 +1146,39 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId }) {
       <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 md:gap-6 items-start">
         {sortedComputers.map(c => {
            const isRented = c.status === 'rented';
+           const costVal = Number(c.cost) || 0;
+           
+           // 动态计算该设备的累计收益
+           let machineEarned = 0; 
+           const today = new Date();
+           orders.filter(o => o.computerSn === c.sn).forEach(o => {
+             const d = Number(o.days) || 30, totD = d + (Number(o.renewMonths) || 0) * 30;
+             let el = o.startDate ? Math.max(0, Math.floor((today - new Date(o.startDate)) / 86400000)) : 0;
+             machineEarned += (d > 0 ? (Number(o.monthlyRent) || 0) / d : 0) * Math.min(el, totD);
+           });
+
            return (
              <div 
                key={c.id} 
                onClick={() => setSelectedId(c.id)}
-               className="bg-[#1e2024] rounded-xl border border-[#3c3f41] flex flex-col justify-center items-center h-24 md:h-32 cursor-pointer hover:border-gray-500 transition-all hover:scale-105 shadow-sm group p-2"
+               className="bg-[#1e2024] rounded-xl border border-[#3c3f41] flex flex-col justify-between h-28 md:h-32 cursor-pointer hover:border-gray-500 transition-all hover:scale-105 shadow-sm group p-3"
              >
-               <div className="flex items-center gap-2 md:gap-3 transition-transform duration-300">
+               {/* 上半部分：极简状态红绿灯与编号 */}
+               <div className="flex-1 flex items-center justify-center gap-2 md:gap-3 transition-transform duration-300">
                  <div className={`w-2 h-2 md:w-3 md:h-3 shrink-0 rounded-full ${isRented ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)] animate-pulse' : 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]'}`}></div>
-                 <span className="font-bold text-white group-hover:text-blue-400 transition-colors tracking-wider text-sm md:text-xl truncate">{c.sn || '未命名'}</span>
+                 <span className="font-bold text-white group-hover:text-blue-400 transition-colors tracking-wider text-base md:text-xl truncate">{c.sn || '未命名'}</span>
+               </div>
+               
+               {/* 下半部分：简化的成本与收益财务微型条 */}
+               <div className="flex justify-between w-full text-[10px] md:text-xs border-t border-[#333] pt-2 mt-1 opacity-80 group-hover:opacity-100 transition-opacity">
+                 <div className="flex flex-col">
+                   <span className="text-gray-500 mb-0.5 scale-90 origin-left">成本</span>
+                   <span className="text-blue-400 font-mono font-bold">{costVal.toFixed(0)}</span>
+                 </div>
+                 <div className="flex flex-col text-right">
+                   <span className="text-gray-500 mb-0.5 scale-90 origin-right">收益</span>
+                   <span className="text-emerald-500 font-mono font-bold">{machineEarned.toFixed(0)}</span>
+                 </div>
                </div>
              </div>
            );
