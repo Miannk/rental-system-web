@@ -46,7 +46,7 @@ export default function App() {
   const [user, setUser] = useState(isCloudMode ? null : { uid: 'local-demo-user' });
   const [orders, setOrders] = useState([]);
   const [computers, setComputers] = useState([]); 
-  const [filter, setFilter] = useState('进行中'); // 默认显示进行中
+  const [filter, setFilter] = useState('进行中'); 
   const [searchQuery, setSearchQuery] = useState(''); 
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState("");
@@ -114,13 +114,13 @@ export default function App() {
     };
   }, [user, isCloudMode]);
 
-  // --- 5. 核心计算与智能筛选 ---
-  const { sortedCustomerEntries, kpis } = useMemo(() => {
-    const map = {};
+  // --- 5. 核心计算 ---
+
+  // 【优化 1】全局 KPI 计算 (独立于筛选和搜索，永远展示总数据)
+  const globalKpis = useMemo(() => {
     let totalCusts = new Set();
     let rentedComps = 0, totalDaily = 0, totalRev = 0, totalFlow = 0;
     const today = new Date();
-    const lowerQuery = searchQuery.toLowerCase().trim(); 
 
     orders.forEach(o => {
       const days = Number(o.days) || 30;
@@ -131,14 +131,53 @@ export default function App() {
       let remD = totalDays - el;
 
       const isActive = o.status === 'active';
+
+      totalCusts.add(o.customerId);
+      totalFlow += Number(o.paidRent) || 0;
+
+      if (o.computerSn) {
+        if (isActive) {
+          rentedComps++;
+          // 未超期才算有效日租
+          if (remD >= 0) totalDaily += dailyRate;
+        }
+        totalRev += (dailyRate * Math.max(0, Math.min(el, totalDays)));
+      }
+    });
+
+    return {
+      custs: totalCusts.size,
+      rented: rentedComps,
+      daily: totalDaily.toFixed(2),
+      rev: totalRev.toFixed(2),
+      flow: totalFlow.toFixed(2)
+    };
+  }, [orders]);
+
+  // 【优化 2】列表数据过滤 (受顶部 Tab 和搜索框控制)
+  const sortedCustomerEntries = useMemo(() => {
+    const map = {};
+    const today = new Date();
+    const lowerQuery = searchQuery.toLowerCase().trim(); 
+
+    orders.forEach(o => {
+      const days = Number(o.days) || 30;
+      const renew = Number(o.renewMonths) || 0;
+      const totalDays = days + (renew * 30);
+      let el = o.startDate ? Math.floor((today - new Date(o.startDate)) / 86400000) : 0;
+      let remD = totalDays - el;
+
+      const isActive = o.status === 'active';
       const isOverdue = isActive && remD < 0;
       const isInProgress = isActive && remD >= 0;
       const isCompleted = !isActive;
 
+      // 状态过滤
       if (filter === '进行中' && !isInProgress) return;
       if (filter === '已超期' && !isOverdue) return;
       if (filter === '已结单' && !isCompleted) return;
 
+      // 搜索过滤
       if (lowerQuery) {
         const matchName = (o.customerName || '').toLowerCase().includes(lowerQuery);
         const matchPhone = (o.phone || '').toLowerCase().includes(lowerQuery);
@@ -159,22 +198,9 @@ export default function App() {
           orders: [] 
       };
       map[cid].orders.push(o);
-      
-      totalCusts.add(cid);
-      totalFlow += Number(o.paidRent) || 0;
-
-      if (o.computerSn) {
-        if (isActive) { 
-          rentedComps++; 
-          if (remD >= 0) {
-             totalDaily += dailyRate; 
-          }
-        }
-        totalRev += (dailyRate * Math.max(0, Math.min(el, totalDays)));
-      }
     });
 
-    const sortedEntries = Object.entries(map).sort((a, b) => {
+    return Object.entries(map).sort((a, b) => {
       const getSortTime = (cid, customerData) => {
         const createdAts = customerData.orders.map(o => o.createdAt).filter(v => v);
         if (createdAts.length > 0) return Math.min(...createdAts); 
@@ -184,14 +210,6 @@ export default function App() {
       };
       return getSortTime(a[0], a[1]) - getSortTime(b[0], b[1]);
     });
-
-    return {
-      sortedCustomerEntries: sortedEntries,
-      kpis: {
-        custs: totalCusts.size, rented: rentedComps,
-        daily: totalDaily.toFixed(2), rev: totalRev.toFixed(2), flow: totalFlow.toFixed(2)
-      }
-    };
   }, [orders, filter, searchQuery]);
 
   // --- 跨页面高亮与自动展开 ---
@@ -497,12 +515,13 @@ export default function App() {
                 </div>
               </div>
 
+              {/* 永远展示全局所有订单的总计数据，不再受筛选条件变动！ */}
               <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
-                <KpiCard title={searchQuery ? "匹配客户数" : "总客户数"} value={kpis.custs} />
-                <KpiCard title={searchQuery ? "匹配设备数" : "在租设备"} value={kpis.rented} />
-                <KpiCard title="日租" value={`¥ ${kpis.daily}`} color="text-orange-500" />
-                <KpiCard title="累计收益" value={`¥ ${kpis.rev}`} color="text-emerald-500" />
-                <KpiCard title="流水总额" value={`¥ ${kpis.flow}`} color="text-blue-400" className="col-span-2 lg:col-span-1" />
+                <KpiCard title="总客户数" value={globalKpis.custs} />
+                <KpiCard title="在租设备" value={globalKpis.rented} />
+                <KpiCard title="日租" value={`¥ ${globalKpis.daily}`} color="text-orange-500" />
+                <KpiCard title="累计收益" value={`¥ ${globalKpis.rev}`} color="text-emerald-500" />
+                <KpiCard title="流水总额" value={`¥ ${globalKpis.flow}`} color="text-blue-400" className="col-span-2 lg:col-span-1" />
               </div>
 
               <div className="pb-20">
@@ -555,7 +574,6 @@ function CustomerCard({ cid, data, onSelect }) {
   let activeCount = 0, overdueCount = 0, tDaily = 0, tAcc = 0;
   const today = new Date();
   
-  // 找到最快到期的订单进度信息
   let fastestRemD = Infinity;
   let fastestRatio = 0;
 
@@ -576,7 +594,6 @@ function CustomerCard({ cid, data, onSelect }) {
            tDaily += dailyRate; 
         }
         
-        // 更新最快到期记录
         if (remD < fastestRemD) {
             fastestRemD = remD;
             fastestRatio = totalDays > 0 ? Math.min(Math.max(0, el) / totalDays, 1) : 0;
@@ -592,7 +609,6 @@ function CustomerCard({ cid, data, onSelect }) {
       ? <div className="text-[10px] font-bold px-2 py-1 rounded shrink-0 bg-blue-500/20 text-blue-400">在租 {activeCount}</div>
       : <div className="text-[10px] font-bold px-2 py-1 rounded shrink-0 bg-gray-700 text-gray-400">空闲</div>;
 
-  // 进度条颜色计算 (剩余天数 >=3 绿色，<3 红色)
   const barColor = fastestRemD < 3 ? "bg-red-500" : "bg-emerald-500";
 
   return (
@@ -616,7 +632,6 @@ function CustomerCard({ cid, data, onSelect }) {
          </div>
       </div>
 
-      {/* 底部极简进度条 */}
       {activeCount > 0 && (
          <div className="w-full bg-gray-900 h-1 rounded-full overflow-hidden mt-auto">
             <div className={`h-full ${barColor}`} style={{ width: `${fastestRatio * 100}%` }}></div>
@@ -669,7 +684,6 @@ function CustomerDetailView({ cid, data, onBack, onUpdateCustomer, onAddDevice, 
         <div className="p-4 md:p-6 bg-[#262930] flex flex-col gap-5 border-b border-[#333842]">
           
           <div className="flex flex-col lg:flex-row justify-between gap-5">
-            {/* 基础信息录入区 - 手机端单列自适应，加入备注属性，上下排布 */}
             <div className="flex flex-col gap-3 md:gap-4 flex-1">
                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
                  <div className="flex items-center gap-3">
@@ -689,7 +703,6 @@ function CustomerDetailView({ cid, data, onBack, onUpdateCustomer, onAddDevice, 
                  </div>
                </div>
                
-               {/* 备注专属横条 */}
                <div className="flex items-center gap-3">
                  <span className="text-gray-500 text-sm font-bold w-10 shrink-0">备注</span>
                  <input type="text" value={data.remark || ''} onChange={(e) => onUpdateCustomer(cid, 'remark', e.target.value)} 
@@ -697,7 +710,6 @@ function CustomerDetailView({ cid, data, onBack, onUpdateCustomer, onAddDevice, 
                </div>
             </div>
             
-            {/* KPI 指标区 */}
             <div className="flex items-center justify-between sm:justify-start gap-4 bg-[#1a1c20] p-3 rounded-lg shrink-0">
                <div className="text-center px-1"><div className="text-gray-500 text-[10px] md:text-xs mb-1">在租/超期</div><div className="text-blue-400 font-bold text-sm md:text-base">{activeCount} <span className="text-xs text-gray-500">/</span> {overdueCount > 0 ? <span className="text-red-500">{overdueCount}</span> : <span className="text-gray-500">0</span>}</div></div>
                <div className="w-px h-6 bg-gray-700 mx-1"></div>
@@ -708,7 +720,6 @@ function CustomerDetailView({ cid, data, onBack, onUpdateCustomer, onAddDevice, 
           </div>
 
           <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-5 border-t border-[#333842] pt-4 mt-1">
-             {/* 客户图像附件档案槽 */}
              <div className="w-full md:w-auto">
                 <span className="text-gray-400 text-xs md:text-sm font-bold mb-3 block">客户档案附件 (点击存入身份证/执照截图)</span>
                 <div className="grid grid-cols-4 gap-2 md:gap-3 w-full max-w-md">
@@ -758,10 +769,8 @@ function OrderRow({ order, onUpdate, onDelete, isHighlighted, computers, orders 
   }
   const progressRatio = totalDays > 0 ? Math.min(Math.max(0, el) / totalDays, 1) : 0;
   
-  // 进度条颜色判定逻辑: <3天 红色, 否则 绿色
   const barColor = !isActive ? "bg-gray-600" : (remD < 3 ? "bg-red-500" : "bg-emerald-500");
   
-  // 对于超期的设备，日收益一栏直接显示0，防止财务误解
   const effectiveDailyRate = (isActive && remD >= 0) ? dailyRate : 0;
 
   return (
@@ -822,7 +831,6 @@ function HomeTab({ orders, onJump }) {
     let el = o.startDate ? Math.floor((today - new Date(o.startDate)) / 86400000) : 0;
     const remD = totalDays - el;
     
-    // 【核心修改】只保留 0~3 天快到期的订单，自动屏蔽已超期（<0）的无效干扰！
     if (remD >= 0 && remD <= 3) {
       const expDate = new Date(o.startDate); expDate.setDate(expDate.getDate() + totalDays);
       if (!expiringGroups[o.customerId]) expiringGroups[o.customerId] = { cust: o.customerName, phone: o.phone, minRem: remD, devices: [] };
@@ -1110,20 +1118,11 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId }) {
         </div>
 
         <div className="bg-[#1e2024] rounded-xl border border-[#3c3f41] p-4 md:p-6 shadow-xl max-w-4xl space-y-6 md:space-y-8">
-          <div className="flex items-center gap-3 md:gap-4">
-             <span className="text-gray-400 font-bold w-10 md:w-12 shrink-0">收益</span>
-             <div className="flex-1 bg-gray-800 h-5 md:h-6 rounded-md relative overflow-hidden flex items-center justify-center">
-                <div className="absolute left-0 top-0 bottom-0 bg-emerald-600/80 transition-all duration-500" style={{width: `${mRoi * 100}%`}}></div>
-                <span className="relative text-[10px] md:text-xs font-bold text-white z-10 tracking-wider">¥ {machineEarned.toFixed(1)}</span>
-             </div>
-          </div>
-
           <div className="bg-[#1a1c20] p-4 md:p-6 rounded-lg grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4 text-sm">
             <div className="flex items-center gap-3"><span className="text-gray-500 w-10 shrink-0">CPU</span><input type="text" value={c.cpu || ''} onChange={e=>handleUpdateComputer(c.id, 'cpu', e.target.value)} className="flex-1 min-w-0 bg-[#2b2d33] text-white px-3 py-2 rounded outline-none" /></div>
             <div className="flex items-center gap-3"><span className="text-gray-500 w-10 shrink-0">显卡</span><input type="text" value={c.gpu || ''} onChange={e=>handleUpdateComputer(c.id, 'gpu', e.target.value)} className="flex-1 min-w-0 bg-[#2b2d33] text-white px-3 py-2 rounded outline-none" /></div>
             <div className="flex items-center gap-3"><span className="text-gray-500 w-10 shrink-0">内存</span><input type="text" value={c.ram || ''} onChange={e=>handleUpdateComputer(c.id, 'ram', e.target.value)} className="flex-1 min-w-0 bg-[#2b2d33] text-white px-3 py-2 rounded outline-none" /></div>
             <div className="flex items-center gap-3"><span className="text-gray-500 w-10 shrink-0">固态</span><input type="text" value={c.ssd || ''} onChange={e=>handleUpdateComputer(c.id, 'ssd', e.target.value)} className="flex-1 min-w-0 bg-[#2b2d33] text-white px-3 py-2 rounded outline-none" /></div>
-            <div className="col-span-1 md:col-span-2 mt-2 md:mt-4 pt-4 border-t border-[#333] flex items-center gap-3"><span className="text-gray-400 font-bold shrink-0">采购成本:</span><input type="number" value={c.cost || ''} onChange={e=>handleUpdateComputer(c.id, 'cost', e.target.value)} className="flex-1 min-w-0 bg-[#2b2d33] text-blue-400 font-bold px-3 py-2 rounded outline-none" /></div>
           </div>
 
           <div>
@@ -1168,12 +1167,22 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId }) {
         <button onClick={handleAddComputer} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl font-bold shadow-lg shadow-blue-500/20 flex items-center gap-2 transition-transform active:scale-95"><Plus size={18} /> 新增空闲设备</button>
       </div>
 
+      {/* --- 全局统计大面板 --- */}
+      <div className="bg-[#22252b] rounded-xl p-6 mb-6 border border-gray-800 flex flex-col md:flex-row items-center gap-6 shadow-sm">
+        <div className="relative w-24 h-24 flex items-center justify-center rounded-full border-[10px]" style={{ borderColor: '#1F1F1F', borderTopColor: totalRoi > 0 ? roiColor : '#1F1F1F', borderRightColor: totalRoi > 0.25 ? roiColor : '#1F1F1F', borderBottomColor: totalRoi > 0.5 ? roiColor : '#1F1F1F', borderLeftColor: totalRoi > 0.75 ? roiColor : '#1F1F1F', transform: 'rotate(45deg)'}}>
+           <span className="absolute font-bold text-white text-lg" style={{transform: 'rotate(-45deg)'}}>{(totalRoi * 100).toFixed(0)}%</span>
+        </div>
+        <div className="flex-1 text-center md:text-left">
+          <p className="text-xl font-bold text-white mb-2">总采购成本: ¥ {totalCost.toFixed(2)} <span className="mx-4 text-gray-600">|</span> 总收益: ¥ {totalEarned.toFixed(2)}</p>
+          <p className={`font-bold ${totalRoi >= 1.0 ? 'text-emerald-500' : 'text-blue-400'}`}>资产整体回本: {totalRoi >= 1.0 ? '已盈利' : '奋斗中'}</p>
+        </div>
+      </div>
+
       <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 md:gap-6 items-start">
         {sortedComputers.map(c => {
            const isRented = c.status === 'rented';
            const costVal = Number(c.cost) || 0;
            
-           // 动态计算该设备的累计收益
            let machineEarned = 0; 
            const today = new Date();
            orders.filter(o => o.computerSn === c.sn).forEach(o => {
@@ -1188,15 +1197,14 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId }) {
                onClick={() => setSelectedId(c.id)}
                className="bg-[#1e2024] rounded-xl border border-[#3c3f41] flex flex-col justify-between h-28 md:h-32 cursor-pointer hover:border-gray-500 transition-all hover:scale-105 shadow-sm group p-3"
              >
-               {/* 上半部分：极简状态红绿灯与编号 */}
                <div className="flex-1 flex items-center justify-center gap-2 md:gap-3 transition-transform duration-300">
                  <div className={`w-2 h-2 md:w-3 md:h-3 shrink-0 rounded-full ${isRented ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)] animate-pulse' : 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]'}`}></div>
                  <span className="font-bold text-white group-hover:text-blue-400 transition-colors tracking-wider text-base md:text-xl truncate">{c.sn || '未命名'}</span>
                </div>
                
-               {/* 下半部分：简化的成本与收益进度条 */}
                <div className="w-full mt-auto pt-2 border-t border-[#333] opacity-80 group-hover:opacity-100 transition-opacity">
                  <div className="flex justify-end items-end text-[10px] mb-1 px-0.5">
+                    {/* 删除了左侧的成本显示，仅在右侧保留精简分子分母 */}
                     <span className="text-gray-500 scale-90 origin-right"><span className={machineEarned >= costVal ? "text-emerald-500" : "text-red-500"}>{machineEarned.toFixed(0)}</span> / {costVal.toFixed(0)}</span>
                  </div>
                  <div className="w-full bg-gray-800 h-1 rounded-full overflow-hidden">
