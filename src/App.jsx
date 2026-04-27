@@ -46,7 +46,7 @@ export default function App() {
   const [user, setUser] = useState(isCloudMode ? null : { uid: 'local-demo-user' });
   const [orders, setOrders] = useState([]);
   const [computers, setComputers] = useState([]); 
-  const [filter, setFilter] = useState('全部'); 
+  const [filter, setFilter] = useState('进行中'); // 默认显示进行中
   const [searchQuery, setSearchQuery] = useState(''); 
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState("");
@@ -554,6 +554,10 @@ function KpiCard({ title, value, color = "text-white", className = "" }) {
 function CustomerCard({ cid, data, onSelect }) {
   let activeCount = 0, overdueCount = 0, tDaily = 0, tAcc = 0;
   const today = new Date();
+  
+  // 找到最快到期的订单进度信息
+  let fastestRemD = Infinity;
+  let fastestRatio = 0;
 
   data.orders.forEach(o => {
     if (o.computerSn) {
@@ -568,9 +572,14 @@ function CustomerCard({ cid, data, onSelect }) {
         if (remD < 0) {
           overdueCount++;
         }
-        // 核心财务逻辑：只有未超期(包含0)才计入有效日租
         if (remD >= 0) {
            tDaily += dailyRate; 
+        }
+        
+        // 更新最快到期记录
+        if (remD < fastestRemD) {
+            fastestRemD = remD;
+            fastestRatio = totalDays > 0 ? Math.min(Math.max(0, el) / totalDays, 1) : 0;
         }
       }
       tAcc += dailyRate * Math.max(0, Math.min(el, totalDays));
@@ -583,16 +592,20 @@ function CustomerCard({ cid, data, onSelect }) {
       ? <div className="text-[10px] font-bold px-2 py-1 rounded shrink-0 bg-blue-500/20 text-blue-400">在租 {activeCount}</div>
       : <div className="text-[10px] font-bold px-2 py-1 rounded shrink-0 bg-gray-700 text-gray-400">空闲</div>;
 
+  // 进度条颜色计算
+  const barColor = overdueCount > 0 ? "bg-red-500" : (fastestRemD <= 3 ? "bg-orange-500" : "bg-emerald-500");
+
   return (
-    <div onClick={() => onSelect(cid)} className="bg-[#1e2024] rounded-xl border border-[#3c3f41] p-4 cursor-pointer hover:border-gray-500 transition-all hover:scale-105 shadow-sm group relative flex flex-col justify-between h-36">
-      <div>
+    <div onClick={() => onSelect(cid)} className="bg-[#1e2024] rounded-xl border border-[#3c3f41] p-4 cursor-pointer hover:border-gray-500 transition-all hover:scale-105 shadow-sm group relative flex flex-col h-40">
+      <div className="flex-1">
          <div className="flex justify-between items-start mb-2">
             <div className="font-bold text-white text-lg truncate pr-2 group-hover:text-blue-400 transition-colors">{data.name || '未命名客户'}</div>
             {statusTag}
          </div>
          <div className="text-gray-400 text-xs flex items-center gap-1 mb-3"><Phone size={12}/>{data.phone || '无电话'}</div>
       </div>
-      <div className="flex justify-between items-end border-t border-[#333] pt-2">
+      
+      <div className="flex justify-between items-end border-t border-[#333] pt-2 mb-2">
          <div>
             <div className="text-gray-500 text-[10px] mb-0.5">日租</div>
             <div className="text-orange-500 font-bold text-sm">¥ {tDaily.toFixed(1)}</div>
@@ -602,6 +615,13 @@ function CustomerCard({ cid, data, onSelect }) {
             <div className="text-emerald-500 font-bold text-sm">¥ {tAcc.toFixed(1)}</div>
          </div>
       </div>
+
+      {/* 底部极简进度条 */}
+      {activeCount > 0 && (
+         <div className="w-full bg-gray-900 h-1.5 rounded-full overflow-hidden mt-auto">
+            <div className={`h-full ${barColor}`} style={{ width: `${fastestRatio * 100}%` }}></div>
+         </div>
+      )}
     </div>
   );
 }
@@ -766,7 +786,7 @@ function OrderRow({ order, onUpdate, onDelete, isHighlighted, computers, orders 
       <div className="col-span-1"><input type="number" value={order.days} onChange={(e) => onUpdate(order.id, 'days', e.target.value)} className="w-full text-center bg-black text-white py-1 rounded border border-gray-800 outline-none" /></div>
       <div className="col-span-1">
         <select value={order.renewMonths || 0} onChange={(e) => onUpdate(order.id, 'renewMonths', e.target.value)} className="w-full bg-black text-white py-1 rounded border border-gray-800 outline-none">
-          {[0,1,2,3,4,5,6,12].map(n => <option key={n} value={n}>{n}</option>)}
+          {[0,1,2,3,4,5,6,7,8,9,10,12].map(n => <option key={n} value={n}>{n}</option>)}
         </select>
       </div>
       <div className="col-span-2 px-1">
@@ -1042,12 +1062,6 @@ function ImageUploadSlot({ label, image, onUpload, onRemove }) {
 function EquipmentTab({ computers, orders, isCloudMode, user, db, appId }) {
   const [selectedId, setSelectedId] = useState(null);
 
-  let totalCost = 0, totalEarned = 0;
-  computers.forEach(c => totalCost += (Number(c.cost) || 0));
-  orders.forEach(o => totalEarned += (Number(o.paidRent) || 0));
-  const totalRoi = totalCost > 0 ? (totalEarned / totalCost) : 0;
-  const roiColor = totalRoi >= 1.0 ? "#2FA572" : "#3B8ED0";
-
   const handleAddComputer = async () => {
     if (!isCloudMode || !user) return alert("请先连接云端！");
     const existingSns = computers.map(c => c.sn).filter(sn => sn && sn.startsWith('A'));
@@ -1070,14 +1084,6 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId }) {
   if (selectedComp) {
     const c = selectedComp;
     const isRented = c.status === 'rented';
-    let machineEarned = 0; 
-    const today = new Date();
-    orders.filter(o => o.computerSn === c.sn).forEach(o => {
-      const d = Number(o.days) || 30, totD = d + (Number(o.renewMonths) || 0) * 30;
-      let el = o.startDate ? Math.max(0, Math.floor((today - new Date(o.startDate)) / 86400000)) : 0;
-      machineEarned += (d > 0 ? (Number(o.monthlyRent) || 0) / d : 0) * Math.min(el, totD);
-    });
-    const mRoi = (Number(c.cost) || 0) > 0 ? Math.min(machineEarned / Number(c.cost), 1) : 0;
 
     return (
       <div className="pb-20 animate-in fade-in slide-in-from-right-4 duration-300">
@@ -1094,20 +1100,11 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId }) {
         </div>
 
         <div className="bg-[#1e2024] rounded-xl border border-[#3c3f41] p-4 md:p-6 shadow-xl max-w-4xl space-y-6 md:space-y-8">
-          <div className="flex items-center gap-3 md:gap-4">
-             <span className="text-gray-400 font-bold w-10 md:w-12 shrink-0">收益</span>
-             <div className="flex-1 bg-gray-800 h-5 md:h-6 rounded-md relative overflow-hidden flex items-center justify-center">
-                <div className="absolute left-0 top-0 bottom-0 bg-emerald-600/80 transition-all duration-500" style={{width: `${mRoi * 100}%`}}></div>
-                <span className="relative text-[10px] md:text-xs font-bold text-white z-10 tracking-wider">¥ {machineEarned.toFixed(1)}</span>
-             </div>
-          </div>
-
           <div className="bg-[#1a1c20] p-4 md:p-6 rounded-lg grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4 text-sm">
             <div className="flex items-center gap-3"><span className="text-gray-500 w-10 shrink-0">CPU</span><input type="text" value={c.cpu || ''} onChange={e=>handleUpdateComputer(c.id, 'cpu', e.target.value)} className="flex-1 min-w-0 bg-[#2b2d33] text-white px-3 py-2 rounded outline-none" /></div>
             <div className="flex items-center gap-3"><span className="text-gray-500 w-10 shrink-0">显卡</span><input type="text" value={c.gpu || ''} onChange={e=>handleUpdateComputer(c.id, 'gpu', e.target.value)} className="flex-1 min-w-0 bg-[#2b2d33] text-white px-3 py-2 rounded outline-none" /></div>
             <div className="flex items-center gap-3"><span className="text-gray-500 w-10 shrink-0">内存</span><input type="text" value={c.ram || ''} onChange={e=>handleUpdateComputer(c.id, 'ram', e.target.value)} className="flex-1 min-w-0 bg-[#2b2d33] text-white px-3 py-2 rounded outline-none" /></div>
             <div className="flex items-center gap-3"><span className="text-gray-500 w-10 shrink-0">固态</span><input type="text" value={c.ssd || ''} onChange={e=>handleUpdateComputer(c.id, 'ssd', e.target.value)} className="flex-1 min-w-0 bg-[#2b2d33] text-white px-3 py-2 rounded outline-none" /></div>
-            <div className="col-span-1 md:col-span-2 mt-2 md:mt-4 pt-4 border-t border-[#333] flex items-center gap-3"><span className="text-gray-400 font-bold shrink-0">采购成本:</span><input type="number" value={c.cost || ''} onChange={e=>handleUpdateComputer(c.id, 'cost', e.target.value)} className="flex-1 min-w-0 bg-[#2b2d33] text-blue-400 font-bold px-3 py-2 rounded outline-none" /></div>
           </div>
 
           <div>
@@ -1141,15 +1138,9 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId }) {
 
   return (
     <div className="pb-20">
-      <div className="bg-[#22252b] rounded-xl p-6 mb-6 border border-gray-800 flex flex-col md:flex-row items-center gap-6 shadow-sm">
-        <div className="relative w-24 h-24 flex items-center justify-center rounded-full border-[10px]" style={{ borderColor: '#1F1F1F', borderTopColor: totalRoi > 0 ? roiColor : '#1F1F1F', borderRightColor: totalRoi > 0.25 ? roiColor : '#1F1F1F', borderBottomColor: totalRoi > 0.5 ? roiColor : '#1F1F1F', borderLeftColor: totalRoi > 0.75 ? roiColor : '#1F1F1F', transform: 'rotate(45deg)'}}>
-           <span className="absolute font-bold text-white text-lg" style={{transform: 'rotate(-45deg)'}}>{(totalRoi * 100).toFixed(0)}%</span>
-        </div>
-        <div className="flex-1 text-center md:text-left">
-          <p className="text-xl font-bold text-white mb-2">总采购成本: ¥ {totalCost.toFixed(2)} <span className="mx-4 text-gray-600">|</span> 总收益: ¥ {totalEarned.toFixed(2)}</p>
-          <p className={`font-bold ${totalRoi >= 1.0 ? 'text-emerald-500' : 'text-blue-400'}`}>资产整体回本: {totalRoi >= 1.0 ? '已盈利' : '奋斗中'}</p>
-        </div>
-        <button onClick={handleAddComputer} className="bg-blue-600 hover:bg-blue-500 text-white px-5 py-2.5 rounded-xl font-bold shadow-lg shadow-blue-500/20 flex items-center gap-2 transition-transform active:scale-95"><Plus size={18} /> 新增空闲设备</button>
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-xl md:text-2xl font-bold text-white">设备资产库</h2>
+        <button onClick={handleAddComputer} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl font-bold shadow-lg shadow-blue-500/20 flex items-center gap-2 transition-transform active:scale-95"><Plus size={18} /> 新增空闲设备</button>
       </div>
 
       <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 md:gap-6 items-start">
