@@ -1118,11 +1118,20 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId }) {
         </div>
 
         <div className="bg-[#1e2024] rounded-xl border border-[#3c3f41] p-4 md:p-6 shadow-xl max-w-4xl space-y-6 md:space-y-8">
+          <div className="flex items-center gap-3 md:gap-4">
+             <span className="text-gray-400 font-bold w-10 md:w-12 shrink-0">收益</span>
+             <div className="flex-1 bg-gray-800 h-5 md:h-6 rounded-md relative overflow-hidden flex items-center justify-center">
+                <div className="absolute left-0 top-0 bottom-0 bg-emerald-600/80 transition-all duration-500" style={{width: `${mRoi * 100}%`}}></div>
+                <span className="relative text-[10px] md:text-xs font-bold text-white z-10 tracking-wider">¥ {machineEarned.toFixed(1)}</span>
+             </div>
+          </div>
+
           <div className="bg-[#1a1c20] p-4 md:p-6 rounded-lg grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4 text-sm">
             <div className="flex items-center gap-3"><span className="text-gray-500 w-10 shrink-0">CPU</span><input type="text" value={c.cpu || ''} onChange={e=>handleUpdateComputer(c.id, 'cpu', e.target.value)} className="flex-1 min-w-0 bg-[#2b2d33] text-white px-3 py-2 rounded outline-none" /></div>
             <div className="flex items-center gap-3"><span className="text-gray-500 w-10 shrink-0">显卡</span><input type="text" value={c.gpu || ''} onChange={e=>handleUpdateComputer(c.id, 'gpu', e.target.value)} className="flex-1 min-w-0 bg-[#2b2d33] text-white px-3 py-2 rounded outline-none" /></div>
             <div className="flex items-center gap-3"><span className="text-gray-500 w-10 shrink-0">内存</span><input type="text" value={c.ram || ''} onChange={e=>handleUpdateComputer(c.id, 'ram', e.target.value)} className="flex-1 min-w-0 bg-[#2b2d33] text-white px-3 py-2 rounded outline-none" /></div>
             <div className="flex items-center gap-3"><span className="text-gray-500 w-10 shrink-0">固态</span><input type="text" value={c.ssd || ''} onChange={e=>handleUpdateComputer(c.id, 'ssd', e.target.value)} className="flex-1 min-w-0 bg-[#2b2d33] text-white px-3 py-2 rounded outline-none" /></div>
+            <div className="flex items-center gap-3"><span className="text-gray-500 w-10 shrink-0">成本</span><input type="number" value={c.cost || ''} onChange={e=>handleUpdateComputer(c.id, 'cost', e.target.value)} className="flex-1 min-w-0 bg-[#2b2d33] text-blue-400 font-bold px-3 py-2 rounded outline-none" /></div>
           </div>
 
           <div>
@@ -1204,7 +1213,6 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId }) {
                
                <div className="w-full mt-auto pt-2 border-t border-[#333] opacity-80 group-hover:opacity-100 transition-opacity">
                  <div className="flex justify-end items-end text-[10px] mb-1 px-0.5">
-                    {/* 删除了左侧的成本显示，仅在右侧保留精简分子分母 */}
                     <span className="text-gray-500 scale-90 origin-right"><span className={machineEarned >= costVal ? "text-emerald-500" : "text-red-500"}>{machineEarned.toFixed(0)}</span> / {costVal.toFixed(0)}</span>
                  </div>
                  <div className="w-full bg-gray-800 h-1 rounded-full overflow-hidden">
