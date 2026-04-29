@@ -634,6 +634,7 @@ function CustomerCard({ cid, data, onSelect }) {
          </div>
       </div>
 
+      {/* 底部极简进度条 */}
       {activeCount > 0 && (
          <div className="w-full bg-gray-900 h-1 rounded-full overflow-hidden mt-auto">
             <div className={`h-full ${barColor}`} style={{ width: `${fastestRatio * 100}%` }}></div>
@@ -984,9 +985,73 @@ function CalendarTab({ orders }) {
     return `rgb(${Math.floor(30 + 17 * ratio)}, ${Math.floor(70 + 95 * ratio)}, ${Math.floor(32 + 82 * ratio)})`;
   };
 
+  // --- 新增：折线走势图绘制逻辑 ---
+  const chartData = monthsList.map(mKey => ({
+    month: mKey,
+    rev: monthlyRev[mKey] || 0
+  }));
+  
+  const maxChartRev = Math.max(...chartData.map(d => d.rev), 0.01);
+  const svgWidth = Math.max(800, chartData.length * 80);
+  const svgHeight = 220;
+  const padTop = 30, padBottom = 30, padLeft = 60, padRight = 30;
+  const graphWidth = svgWidth - padLeft - padRight;
+  const graphHeight = svgHeight - padTop - padBottom;
+  
+  const points = chartData.map((d, i) => {
+    const x = padLeft + (chartData.length > 1 ? (i / (chartData.length - 1)) * graphWidth : graphWidth / 2);
+    const y = padTop + graphHeight - ((d.rev / maxChartRev) * graphHeight);
+    return { x, y, rev: d.rev, month: d.month };
+  });
+  
+  const pathD = points.length > 0 ? `M ${points.map(p => `${p.x},${p.y}`).join(' L ')}` : '';
+  const areaD = points.length > 0 ? `${pathD} L ${points[points.length - 1].x},${padTop + graphHeight} L ${points[0].x},${padTop + graphHeight} Z` : '';
+
   return (
     <div className="pb-20">
       <div className="mb-6"><h1 className="text-xl md:text-2xl font-bold text-white">历史月度收益总览</h1><p className="text-emerald-500 font-bold text-lg mt-2">累计已产生收益: ¥ {totalAcc.toFixed(2)}</p></div>
+      
+      {/* 📈 趋势走势折线图面板 */}
+      <div className="bg-[#22252b] rounded-xl p-4 md:p-6 mb-8 border border-gray-800 shadow-sm relative">
+         <h3 className="text-gray-400 text-sm font-bold mb-4 flex items-center gap-2"><CalendarDays size={16}/> 趋势走势</h3>
+         <div className="w-full overflow-x-auto no-scrollbar">
+           <div style={{ minWidth: `${svgWidth}px`, height: `${svgHeight}px` }} className="relative">
+              <svg width="100%" height="100%" viewBox={`0 0 ${svgWidth} ${svgHeight}`} preserveAspectRatio="none">
+                 <defs>
+                   <linearGradient id="lineGrad" x1="0" y1="0" x2="0" y2="1">
+                     <stop offset="0%" stopColor="#2FA572" stopOpacity="0.4" />
+                     <stop offset="100%" stopColor="#2FA572" stopOpacity="0.0" />
+                   </linearGradient>
+                 </defs>
+                 
+                 {/* Y轴背景辅助线 */}
+                 {[0, 0.5, 1].map(ratio => {
+                    const y = padTop + graphHeight - (ratio * graphHeight);
+                    return (
+                      <g key={ratio}>
+                         <line x1={padLeft} y1={y} x2={svgWidth - padRight} y2={y} stroke="#333842" strokeDasharray="4 4" />
+                         <text x={padLeft - 10} y={y + 4} fill="#6b7280" fontSize="11" textAnchor="end">¥{(maxChartRev * ratio).toFixed(0)}</text>
+                      </g>
+                    );
+                 })}
+
+                 {/* 渐变面积与实线 */}
+                 <path d={areaD} fill="url(#lineGrad)" />
+                 <path d={pathD} fill="none" stroke="#2FA572" strokeWidth="2" vectorEffect="non-scaling-stroke" />
+                 
+                 {/* 数据节点与标签 */}
+                 {points.map((p, i) => (
+                   <g key={i}>
+                     <circle cx={p.x} cy={p.y} r="4" fill="#1e1e1e" stroke="#2FA572" strokeWidth="2" vectorEffect="non-scaling-stroke" />
+                     {p.rev > 0 && <text x={p.x} y={p.y - 12} fill="#d1d5db" fontSize="11" fontWeight="bold" textAnchor="middle">¥{p.rev.toFixed(0)}</text>}
+                     <text x={p.x} y={svgHeight - 10} fill="#6b7280" fontSize="11" textAnchor="middle">{p.month.substring(2).replace('-', '/')}</text>
+                   </g>
+                 ))}
+              </svg>
+           </div>
+         </div>
+      </div>
+
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
         {monthsList.map(mKey => {
           if ((monthlyRev[mKey] || 0) <= 0) return null;
@@ -1171,7 +1236,6 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId }) {
   const totalRoi = totalCost > 0 ? (totalEarned / totalCost) : 0;
   const roiColor = totalRoi >= 1.0 ? "#2FA572" : "#3B8ED0";
   
-  // 新增：计算整体设备在租率
   const totalCount = computers.length;
   const rentedCount = computers.filter(c => c.status === 'rented').length;
   const rentedRatio = totalCount > 0 ? (rentedCount / totalCount) : 0;
@@ -1183,7 +1247,6 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId }) {
         <button onClick={handleAddComputer} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl font-bold shadow-lg shadow-blue-500/20 flex items-center gap-2 transition-transform active:scale-95"><Plus size={18} /> 新增空闲设备</button>
       </div>
 
-      {/* --- 全局统计大面板 --- */}
       <div className="bg-[#22252b] rounded-xl p-6 mb-6 border border-gray-800 flex flex-col md:flex-row items-center gap-6 shadow-sm">
         <div className="relative w-24 h-24 flex items-center justify-center shrink-0 rounded-full border-[10px]" style={{ borderColor: '#1F1F1F', borderTopColor: totalRoi > 0 ? roiColor : '#1F1F1F', borderRightColor: totalRoi > 0.25 ? roiColor : '#1F1F1F', borderBottomColor: totalRoi > 0.5 ? roiColor : '#1F1F1F', borderLeftColor: totalRoi > 0.75 ? roiColor : '#1F1F1F', transform: 'rotate(45deg)'}}>
            <span className="absolute font-bold text-white text-lg" style={{transform: 'rotate(-45deg)'}}>{(totalRoi * 100).toFixed(0)}%</span>
@@ -1195,7 +1258,6 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId }) {
             <p className={`font-bold text-sm ${totalRoi >= 1.0 ? 'text-emerald-500' : 'text-blue-400'}`}>资产整体回本: {totalRoi >= 1.0 ? '已盈利' : '奋斗中'}</p>
           </div>
           
-          {/* 新增的出租率面板 */}
           <div className="w-full max-w-md mx-auto md:mx-0 bg-[#1a1c20] p-2.5 rounded-lg border border-gray-700/50">
             <div className="flex justify-between items-end mb-1.5 px-1">
               <span className="text-xs text-gray-400 font-bold">设备在租率</span>
