@@ -116,7 +116,7 @@ export default function App() {
 
   // --- 5. 核心计算 ---
 
-  // 【优化 1】全局 KPI 计算 (独立于筛选和搜索，永远展示总数据)
+  // 全局 KPI 计算 (独立于筛选和搜索，永远展示总数据)
   const globalKpis = useMemo(() => {
     let totalCusts = new Set();
     let rentedComps = 0, totalDaily = 0, totalRev = 0, totalFlow = 0;
@@ -154,7 +154,7 @@ export default function App() {
     };
   }, [orders]);
 
-  // 【优化 2】列表数据过滤 (受顶部 Tab 和搜索框控制)
+  // 列表数据过滤 (受顶部 Tab 和搜索框控制)
   const sortedCustomerEntries = useMemo(() => {
     const map = {};
     const today = new Date();
@@ -574,6 +574,7 @@ function CustomerCard({ cid, data, onSelect }) {
   let activeCount = 0, overdueCount = 0, tDaily = 0, tAcc = 0;
   const today = new Date();
   
+  // 找到最快到期的订单进度信息
   let fastestRemD = Infinity;
   let fastestRatio = 0;
 
@@ -594,6 +595,7 @@ function CustomerCard({ cid, data, onSelect }) {
            tDaily += dailyRate; 
         }
         
+        // 更新最快到期记录
         if (remD < fastestRemD) {
             fastestRemD = remD;
             fastestRatio = totalDays > 0 ? Math.min(Math.max(0, el) / totalDays, 1) : 0;
@@ -1168,6 +1170,11 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId }) {
   orders.forEach(o => totalEarned += (Number(o.paidRent) || 0));
   const totalRoi = totalCost > 0 ? (totalEarned / totalCost) : 0;
   const roiColor = totalRoi >= 1.0 ? "#2FA572" : "#3B8ED0";
+  
+  // 新增：计算整体设备在租率
+  const totalCount = computers.length;
+  const rentedCount = computers.filter(c => c.status === 'rented').length;
+  const rentedRatio = totalCount > 0 ? (rentedCount / totalCount) : 0;
 
   return (
     <div className="pb-20">
@@ -1178,12 +1185,26 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId }) {
 
       {/* --- 全局统计大面板 --- */}
       <div className="bg-[#22252b] rounded-xl p-6 mb-6 border border-gray-800 flex flex-col md:flex-row items-center gap-6 shadow-sm">
-        <div className="relative w-24 h-24 flex items-center justify-center rounded-full border-[10px]" style={{ borderColor: '#1F1F1F', borderTopColor: totalRoi > 0 ? roiColor : '#1F1F1F', borderRightColor: totalRoi > 0.25 ? roiColor : '#1F1F1F', borderBottomColor: totalRoi > 0.5 ? roiColor : '#1F1F1F', borderLeftColor: totalRoi > 0.75 ? roiColor : '#1F1F1F', transform: 'rotate(45deg)'}}>
+        <div className="relative w-24 h-24 flex items-center justify-center shrink-0 rounded-full border-[10px]" style={{ borderColor: '#1F1F1F', borderTopColor: totalRoi > 0 ? roiColor : '#1F1F1F', borderRightColor: totalRoi > 0.25 ? roiColor : '#1F1F1F', borderBottomColor: totalRoi > 0.5 ? roiColor : '#1F1F1F', borderLeftColor: totalRoi > 0.75 ? roiColor : '#1F1F1F', transform: 'rotate(45deg)'}}>
            <span className="absolute font-bold text-white text-lg" style={{transform: 'rotate(-45deg)'}}>{(totalRoi * 100).toFixed(0)}%</span>
         </div>
-        <div className="flex-1 text-center md:text-left">
-          <p className="text-xl font-bold text-white mb-2">总采购成本: ¥ {totalCost.toFixed(2)} <span className="mx-4 text-gray-600">|</span> 总收益: ¥ {totalEarned.toFixed(2)}</p>
-          <p className={`font-bold ${totalRoi >= 1.0 ? 'text-emerald-500' : 'text-blue-400'}`}>资产整体回本: {totalRoi >= 1.0 ? '已盈利' : '奋斗中'}</p>
+        
+        <div className="flex-1 w-full text-center md:text-left flex flex-col justify-center gap-3">
+          <div>
+            <p className="text-xl font-bold text-white mb-1">总采购成本: ¥ {totalCost.toFixed(2)} <span className="mx-4 text-gray-600">|</span> 总收益: ¥ {totalEarned.toFixed(2)}</p>
+            <p className={`font-bold text-sm ${totalRoi >= 1.0 ? 'text-emerald-500' : 'text-blue-400'}`}>资产整体回本: {totalRoi >= 1.0 ? '已盈利' : '奋斗中'}</p>
+          </div>
+          
+          {/* 新增的出租率面板 */}
+          <div className="w-full max-w-md mx-auto md:mx-0 bg-[#1a1c20] p-2.5 rounded-lg border border-gray-700/50">
+            <div className="flex justify-between items-end mb-1.5 px-1">
+              <span className="text-xs text-gray-400 font-bold">设备在租率</span>
+              <span className="text-xs font-mono font-bold text-white"><span className="text-blue-400 text-sm">{rentedCount}</span> / {totalCount}</span>
+            </div>
+            <div className="w-full bg-gray-800 h-1.5 rounded-full overflow-hidden">
+              <div className="h-full bg-blue-500 transition-all duration-500" style={{ width: `${rentedRatio * 100}%` }}></div>
+            </div>
+          </div>
         </div>
       </div>
 
