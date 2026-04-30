@@ -303,9 +303,9 @@ export default function App() {
     // 自动计算逻辑：当修改周期、月租、续租时自动得出“已收数”
     let updates = { [field]: value };
     if (['days', 'monthlyRent', 'renewMonths'].includes(field)) {
-      const newDays = field === 'days' ? Number(value) : Number(oldOrder.days || 30);
-      const newRent = field === 'monthlyRent' ? Number(value) : Number(oldOrder.monthlyRent || 0);
-      const newRenew = field === 'renewMonths' ? Number(value) : Number(oldOrder.renewMonths || 0);
+      const newDays = field === 'days' ? (parseInt(value) || 0) : (parseInt(oldOrder.days) || 30);
+      const newRent = field === 'monthlyRent' ? (parseFloat(value) || 0) : (parseFloat(oldOrder.monthlyRent) || 0);
+      const newRenew = field === 'renewMonths' ? (parseInt(value) || 0) : (parseInt(oldOrder.renewMonths) || 0);
       updates.paidRent = newDays === 30 ? newRent * (newRenew + 1) : newRent;
     }
 
@@ -453,7 +453,7 @@ export default function App() {
 
       <div className="hidden md:flex md:w-56 bg-[#1a1c20] flex-shrink-0 border-r border-gray-800 p-4 flex-col shadow-xl">
         <div className="flex items-center space-x-2 text-white font-bold text-xl mb-8">
-          <Monitor className="text-blue-500" /><span>租赁云管理</span>
+          <Monitor className="text-blue-500" /><span>租赁云管理 <span className="text-blue-400 text-xs align-top">V2</span></span>
           <span className={`text-[10px] px-2 py-1 rounded ml-2 ${isCloudMode ? 'bg-emerald-600 shadow-[0_0_8px_rgba(5,150,105,0.8)]' : 'bg-orange-600'}`}>{isCloudMode ? '在线' : '本地'}</span>
         </div>
         <nav className="space-y-2 flex-1">
@@ -487,7 +487,7 @@ export default function App() {
               <div className="flex flex-col mb-6 gap-4 animate-in fade-in duration-300">
                 <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4">
                   <div className="flex items-center gap-3">
-                    <h1 className="text-xl md:text-2xl font-bold text-white whitespace-nowrap">合同与流转</h1>
+                    <h1 className="text-xl md:text-2xl font-bold text-white whitespace-nowrap">合同与流转 <span className="text-blue-500 text-sm align-top">V2</span></h1>
                     <div className="bg-gray-800 p-1 rounded-lg flex space-x-1 text-sm">
                       {['全部', '进行中', '已超期', '已结单'].map(f => (
                         <button key={f} onClick={() => setFilter(f)} className={`px-3 py-1 rounded-md transition ${filter === f ? 'bg-blue-600 text-white' : 'text-gray-400'}`}>{f}</button>
@@ -689,7 +689,7 @@ function CustomerDetailView({ cid, data, onBack, onUpdateCustomer, onAddDevice, 
           <ChevronLeft size={16} className="mr-1"/> 返回客户列表
         </button>
         <h2 className="text-xl md:text-2xl font-bold text-white flex items-center gap-3">
-          客户订单详情
+          客户订单详情 <span className="text-blue-500 text-sm align-top">V2</span>
         </h2>
       </div>
 
