@@ -992,9 +992,11 @@ function CalendarTab({ orders }) {
   }
   if (monthsList.length === 0) monthsList.push(`${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`);
 
+  const maxRev = Math.max(...Object.values(monthlyRev), 0.01);
   const getColor = (amount) => {
-    // 省略此处的渐变方块色，因为已经改成了纯图表和卡片的形式展示
-    return "#2b2b2b";
+    if (amount <= 0) return "#2b2b2b";
+    const ratio = amount / maxRev;
+    return `rgb(${Math.floor(30 + 17 * ratio)}, ${Math.floor(70 + 95 * ratio)}, ${Math.floor(32 + 82 * ratio)})`;
   };
 
   // --- 新增：柱状走势图绘制逻辑 ---
@@ -1072,9 +1074,8 @@ function CalendarTab({ orders }) {
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
         {monthsList.map(mKey => {
           if ((monthlyRev[mKey] || 0) <= 0) return null;
-          // 复用这里的设计来生成小卡片，颜色统一使用深灰色，保持和主题一致
           return (
-            <div key={mKey} onClick={() => setSelectedMonth(mKey)} style={{ backgroundColor: '#2b2b2b' }} className="rounded-xl border-2 border-[#333] h-28 flex flex-col justify-between p-3 shadow-lg cursor-pointer hover:scale-105 transition-transform group relative overflow-hidden">
+            <div key={mKey} onClick={() => setSelectedMonth(mKey)} style={{ backgroundColor: getColor(monthlyRev[mKey]) }} className="rounded-xl border-2 border-[#333] h-28 flex flex-col justify-between p-3 shadow-lg cursor-pointer hover:scale-105 transition-transform group relative overflow-hidden">
               <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity"></div>
               <div className="flex justify-between items-start relative z-10">
                 <span className="font-bold text-white text-sm opacity-90">{mKey.replace('-', '年 ')}月</span>
