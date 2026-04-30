@@ -1002,8 +1002,7 @@ function CalendarTab({ orders }) {
   // 计算每个柱子的坐标和尺寸
   const step = chartData.length > 0 ? graphWidth / chartData.length : graphWidth;
   const actualStep = Math.min(step, 28); // 限制最大列宽，保证挨得紧密
-  const contentWidth = actualStep * chartData.length;
-  const offsetX = padLeft + (graphWidth - contentWidth) / 2; // 数据少时整体居中
+  const offsetX = padLeft; // 取消居中，始终靠左对齐，防止手机端首屏看不到数据
 
   const bars = chartData.map((d, i) => {
     const center = offsetX + i * actualStep + actualStep / 2;
