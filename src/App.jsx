@@ -992,8 +992,8 @@ function CalendarTab({ orders }) {
   }));
   
   const maxChartRev = Math.max(...chartData.map(d => d.rev), 0.01);
-  // 核心修改：将项宽从80大幅缩小到45，让同一屏幕可见更多月份
-  const minItemWidth = 45; 
+  // 核心修改：将项宽大幅缩小到32，并让柱子占据90%的宽度，呈现几乎挨着的紧凑感
+  const minItemWidth = 32; 
   const svgWidth = Math.max(800, chartData.length * minItemWidth + 90);
   const svgHeight = 220;
   const padTop = 30, padBottom = 30, padLeft = 60, padRight = 30;
@@ -1004,7 +1004,7 @@ function CalendarTab({ orders }) {
   const bars = chartData.map((d, i) => {
     const step = chartData.length > 0 ? graphWidth / chartData.length : graphWidth;
     const center = padLeft + i * step + step / 2;
-    const barWidth = Math.min(24, step * 0.6); // 响应式安全柱宽
+    const barWidth = step * 0.85; // 占据 85% 宽度，几乎挨着
     const h = (d.rev / maxChartRev) * graphHeight;
     const x = center - barWidth / 2;
     const y = padTop + graphHeight - h;
@@ -1043,7 +1043,7 @@ function CalendarTab({ orders }) {
                  {bars.map((b, i) => (
                    <g key={i}>
                      {/* 底部保留一个微小的保底高度避免收益为0时完全看不见柱子位置 */}
-                     <rect x={b.x} y={b.y > padTop + graphHeight - 2 ? padTop + graphHeight - 2 : b.y} width={b.w} height={b.h < 2 ? 2 : b.h} fill="url(#barGrad)" rx="4" ry="4" className="hover:opacity-75 transition-opacity cursor-pointer" />
+                     <rect x={b.x} y={b.y > padTop + graphHeight - 2 ? padTop + graphHeight - 2 : b.y} width={b.w} height={b.h < 2 ? 2 : b.h} fill="url(#barGrad)" rx="2" ry="2" className="hover:opacity-75 transition-opacity cursor-pointer" />
                      {b.rev > 0 && <text x={b.center} y={b.y - 8} fill="#d1d5db" fontSize="10" fontWeight="bold" textAnchor="middle">¥{b.rev.toFixed(0)}</text>}
                      <text x={b.center} y={svgHeight - 10} fill="#6b7280" fontSize="10" textAnchor="middle">{b.month.substring(2).replace('-', '/')}</text>
                    </g>
@@ -1199,7 +1199,7 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId }) {
             <div className="flex items-center gap-3"><span className="text-gray-500 w-10 shrink-0">显卡</span><input type="text" value={c.gpu || ''} onChange={e=>handleUpdateComputer(c.id, 'gpu', e.target.value)} className="flex-1 min-w-0 bg-[#2b2d33] text-white px-3 py-2 rounded outline-none" /></div>
             <div className="flex items-center gap-3"><span className="text-gray-500 w-10 shrink-0">内存</span><input type="text" value={c.ram || ''} onChange={e=>handleUpdateComputer(c.id, 'ram', e.target.value)} className="flex-1 min-w-0 bg-[#2b2d33] text-white px-3 py-2 rounded outline-none" /></div>
             <div className="flex items-center gap-3"><span className="text-gray-500 w-10 shrink-0">固态</span><input type="text" value={c.ssd || ''} onChange={e=>handleUpdateComputer(c.id, 'ssd', e.target.value)} className="flex-1 min-w-0 bg-[#2b2d33] text-white px-3 py-2 rounded outline-none" /></div>
-            <div className="flex items-center gap-3"><span className="text-gray-500 w-10 shrink-0">成本</span><input type="number" value={c.cost || ''} onChange={e=>handleUpdateComputer(c.id, 'cost', e.target.value)} className="flex-1 min-w-0 bg-[#2b2d33] text-blue-400 font-bold px-3 py-2 rounded outline-none" /></div>
+            <div className="col-span-1 md:col-span-2 mt-2 md:mt-4 pt-4 border-t border-[#333] flex items-center gap-3"><span className="text-gray-400 font-bold shrink-0">采购成本:</span><input type="number" value={c.cost || ''} onChange={e=>handleUpdateComputer(c.id, 'cost', e.target.value)} className="flex-1 min-w-0 bg-[#2b2d33] text-blue-400 font-bold px-3 py-2 rounded outline-none" /></div>
           </div>
 
           <div>
