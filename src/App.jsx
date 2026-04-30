@@ -985,42 +985,46 @@ function CalendarTab({ orders }) {
     return `rgb(${Math.floor(30 + 17 * ratio)}, ${Math.floor(70 + 95 * ratio)}, ${Math.floor(32 + 82 * ratio)})`;
   };
 
-  // --- 新增：折线走势图绘制逻辑 ---
+  // --- 新增：柱状走势图绘制逻辑 ---
   const chartData = monthsList.map(mKey => ({
     month: mKey,
     rev: monthlyRev[mKey] || 0
   }));
   
   const maxChartRev = Math.max(...chartData.map(d => d.rev), 0.01);
-  const svgWidth = Math.max(800, chartData.length * 80);
+  // 核心修改：将项宽从80大幅缩小到45，让同一屏幕可见更多月份
+  const minItemWidth = 45; 
+  const svgWidth = Math.max(800, chartData.length * minItemWidth + 90);
   const svgHeight = 220;
   const padTop = 30, padBottom = 30, padLeft = 60, padRight = 30;
   const graphWidth = svgWidth - padLeft - padRight;
   const graphHeight = svgHeight - padTop - padBottom;
   
-  const points = chartData.map((d, i) => {
-    const x = padLeft + (chartData.length > 1 ? (i / (chartData.length - 1)) * graphWidth : graphWidth / 2);
-    const y = padTop + graphHeight - ((d.rev / maxChartRev) * graphHeight);
-    return { x, y, rev: d.rev, month: d.month };
+  // 计算每个柱子的坐标和尺寸
+  const bars = chartData.map((d, i) => {
+    const step = chartData.length > 0 ? graphWidth / chartData.length : graphWidth;
+    const center = padLeft + i * step + step / 2;
+    const barWidth = Math.min(24, step * 0.6); // 响应式安全柱宽
+    const h = (d.rev / maxChartRev) * graphHeight;
+    const x = center - barWidth / 2;
+    const y = padTop + graphHeight - h;
+    return { x, y, w: barWidth, h, rev: d.rev, month: d.month, center };
   });
-  
-  const pathD = points.length > 0 ? `M ${points.map(p => `${p.x},${p.y}`).join(' L ')}` : '';
-  const areaD = points.length > 0 ? `${pathD} L ${points[points.length - 1].x},${padTop + graphHeight} L ${points[0].x},${padTop + graphHeight} Z` : '';
 
   return (
     <div className="pb-20">
       <div className="mb-6"><h1 className="text-xl md:text-2xl font-bold text-white">历史月度收益总览</h1><p className="text-emerald-500 font-bold text-lg mt-2">累计已产生收益: ¥ {totalAcc.toFixed(2)}</p></div>
       
-      {/* 📈 趋势走势折线图面板 */}
+      {/* 📈 趋势走势柱状图面板 */}
       <div className="bg-[#22252b] rounded-xl p-4 md:p-6 mb-8 border border-gray-800 shadow-sm relative">
-         <h3 className="text-gray-400 text-sm font-bold mb-4 flex items-center gap-2"><CalendarDays size={16}/> 趋势走势</h3>
+         <h3 className="text-gray-400 text-sm font-bold mb-4 flex items-center gap-2"><CalendarDays size={16}/> 收益走势柱状图</h3>
          <div className="w-full overflow-x-auto no-scrollbar">
            <div style={{ minWidth: `${svgWidth}px`, height: `${svgHeight}px` }} className="relative">
               <svg width="100%" height="100%" viewBox={`0 0 ${svgWidth} ${svgHeight}`} preserveAspectRatio="none">
                  <defs>
-                   <linearGradient id="lineGrad" x1="0" y1="0" x2="0" y2="1">
-                     <stop offset="0%" stopColor="#2FA572" stopOpacity="0.4" />
-                     <stop offset="100%" stopColor="#2FA572" stopOpacity="0.0" />
+                   <linearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1">
+                     <stop offset="0%" stopColor="#2FA572" stopOpacity="0.9" />
+                     <stop offset="100%" stopColor="#2FA572" stopOpacity="0.2" />
                    </linearGradient>
                  </defs>
                  
@@ -1035,16 +1039,13 @@ function CalendarTab({ orders }) {
                     );
                  })}
 
-                 {/* 渐变面积与实线 */}
-                 <path d={areaD} fill="url(#lineGrad)" />
-                 <path d={pathD} fill="none" stroke="#2FA572" strokeWidth="2" vectorEffect="non-scaling-stroke" />
-                 
-                 {/* 数据节点与标签 */}
-                 {points.map((p, i) => (
+                 {/* 柱状图数据节点 */}
+                 {bars.map((b, i) => (
                    <g key={i}>
-                     <circle cx={p.x} cy={p.y} r="4" fill="#1e1e1e" stroke="#2FA572" strokeWidth="2" vectorEffect="non-scaling-stroke" />
-                     {p.rev > 0 && <text x={p.x} y={p.y - 12} fill="#d1d5db" fontSize="11" fontWeight="bold" textAnchor="middle">¥{p.rev.toFixed(0)}</text>}
-                     <text x={p.x} y={svgHeight - 10} fill="#6b7280" fontSize="11" textAnchor="middle">{p.month.substring(2).replace('-', '/')}</text>
+                     {/* 底部保留一个微小的保底高度避免收益为0时完全看不见柱子位置 */}
+                     <rect x={b.x} y={b.y > padTop + graphHeight - 2 ? padTop + graphHeight - 2 : b.y} width={b.w} height={b.h < 2 ? 2 : b.h} fill="url(#barGrad)" rx="4" ry="4" className="hover:opacity-75 transition-opacity cursor-pointer" />
+                     {b.rev > 0 && <text x={b.center} y={b.y - 8} fill="#d1d5db" fontSize="10" fontWeight="bold" textAnchor="middle">¥{b.rev.toFixed(0)}</text>}
+                     <text x={b.center} y={svgHeight - 10} fill="#6b7280" fontSize="10" textAnchor="middle">{b.month.substring(2).replace('-', '/')}</text>
                    </g>
                  ))}
               </svg>
