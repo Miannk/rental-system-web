@@ -299,8 +299,18 @@ export default function App() {
   // --- 4. 数据操作 ---
   const handleUpdateOrder = async (id, field, value) => {
     const oldOrder = orders.find(o => o.id === id);
+    
+    // 自动计算逻辑：当修改周期、月租、续租时自动得出“已收数”
+    let updates = { [field]: value };
+    if (['days', 'monthlyRent', 'renewMonths'].includes(field)) {
+      const newDays = field === 'days' ? Number(value) : Number(oldOrder.days || 30);
+      const newRent = field === 'monthlyRent' ? Number(value) : Number(oldOrder.monthlyRent || 0);
+      const newRenew = field === 'renewMonths' ? Number(value) : Number(oldOrder.renewMonths || 0);
+      updates.paidRent = newDays === 30 ? newRent * (newRenew + 1) : newRent;
+    }
+
     if (isCloudMode) {
-      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'orders', id), { [field]: value }, { merge: true });
+      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'orders', id), updates, { merge: true });
       
       if (field === 'computerSn') {
         if (oldOrder && oldOrder.computerSn) {
@@ -319,7 +329,7 @@ export default function App() {
          }
       }
     } else {
-      setOrders(prev => prev.map(o => o.id === id ? { ...o, [field]: value } : o));
+      setOrders(prev => prev.map(o => o.id === id ? { ...o, ...updates } : o));
       if (field === 'computerSn') {
         setComputers(prev => prev.map(c => {
           if (oldOrder && c.sn === oldOrder.computerSn) return {...c, status: 'available'};
@@ -812,7 +822,11 @@ function OrderRow({ order, onUpdate, onDelete, isHighlighted, computers, orders 
       </div>
       <div className="col-span-1"><input type="number" value={order.monthlyRent} onChange={(e) => onUpdate(order.id, 'monthlyRent', e.target.value)} className="w-full text-center bg-black text-emerald-400 py-1 rounded border border-gray-800 font-bold" /></div>
       <div className="col-span-1 text-center font-bold text-orange-500">{effectiveDailyRate.toFixed(1)}</div>
-      <div className="col-span-1"><input type="number" value={order.paidRent} onChange={(e) => onUpdate(order.id, 'paidRent', e.target.value)} className="w-full text-center bg-black text-blue-400 py-1 rounded border border-gray-800" /></div>
+      <div className="col-span-1">
+         <div className="w-full text-center bg-[#0a0a0a] text-blue-400 py-1 rounded border border-gray-800 font-bold">
+            {Number(order.paidRent || 0).toFixed(0)}
+         </div>
+      </div>
       <div className="col-span-1 flex justify-center gap-2">
         {isActive ? (
            <button onClick={() => { if(window.confirm("确定要对该单进行【结单归档】吗？设备将自动转为闲置状态。")) onUpdate(order.id, 'status', 'completed'); }} className="text-emerald-500 hover:text-emerald-400 transition" title="结单归档"><CheckCircle size={14} /></button>
