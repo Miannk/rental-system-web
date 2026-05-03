@@ -890,22 +890,22 @@ function OrderRow({ order, onUpdate, onDelete, onQuickRenew, isHighlighted, comp
         <div className="col-span-2 flex items-center space-x-2">
           <div className={`w-1 h-3 rounded-full ${!isActive ? 'bg-gray-600' : (order._remD < 0 ? 'bg-red-500' : 'bg-emerald-500')}`}></div>
           <select 
-            value={order.computerSn || ''} 
-            onChange={(e) => onUpdate(order.id, 'computerSn', e.target.value)} 
-            className="w-full bg-[#0a0a0a] text-white px-1 py-1 rounded border border-gray-700 outline-none text-xs cursor-pointer hover:border-gray-500 transition-colors"
-          >
-            <option value="">- 请选择 -</option>
-            {computers && [...computers].sort((a,b) => (a.sn||"").localeCompare(b.sn||"", undefined, {numeric:true})).map(c => {
-              const isOccupied = orders && orders.some(o => o._effectiveStatus === 'active' && o.computerSn === c.sn && o.id !== order.id);
-              return (
-                <option key={c.id || c.sn} value={c.sn}>
-                  {c.sn} {isOccupied ? '(使用中)' : ''}
-                </option>
-              );
-            })}
-          </select>
-        </div>
-        <div className="col-span-2"><input type="date" value={order.startDate || ''} onChange={(e) => onUpdate(order.id, 'startDate', e.target.value)} className="w-full bg-black text-white px-2 py-1 rounded border border-gray-800 outline-none" /></div>
+          value={order.computerSn || ''} 
+          onChange={(e) => onUpdate(order.id, 'computerSn', e.target.value)} 
+          className="w-full bg-[#0a0a0a] text-white px-1 py-1 rounded border border-gray-700 outline-none text-xs cursor-pointer hover:border-gray-500 transition-colors"
+        >
+          <option value="">- 请选择 -</option>
+          {computers && [...computers].sort((a,b) => (a.sn||"").localeCompare(b.sn||"", undefined, {numeric:true})).map(c => {
+            const isOccupied = orders && orders.some(o => o._effectiveStatus === 'active' && o.computerSn === c.sn && o.id !== order.id);
+            return (
+              <option key={c.id || c.sn} value={c.sn}>
+                {c.sn} {isOccupied ? '(使用中)' : ''}
+              </option>
+            );
+          })}
+        </select>
+      </div>
+      <div className="col-span-2"><input type="date" value={order.startDate || ''} onChange={(e) => onUpdate(order.id, 'startDate', e.target.value)} className="w-full bg-black text-white px-2 py-1 rounded border border-gray-800 outline-none" /></div>
         <div className="col-span-1"><input type="number" value={order.days} onChange={(e) => onUpdate(order.id, 'days', e.target.value)} className="w-full text-center bg-black text-white py-1 rounded border border-gray-800 outline-none" /></div>
         
         <div className="col-span-1 flex flex-row items-center gap-1">
@@ -1130,8 +1130,12 @@ function CalendarTab({ orders }) {
   }
   if (monthsList.length === 0) monthsList.push(`${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`);
 
+  // --- 彻底恢复这里的动态渐变算法！---
+  const maxRev = Math.max(...Object.values(monthlyRev), 0.01);
   const getColor = (amount) => {
-    return "#2b2b2b";
+    if (amount <= 0) return "#2b2b2b";
+    const ratio = amount / maxRev;
+    return `rgb(${Math.floor(30 + 17 * ratio)}, ${Math.floor(70 + 95 * ratio)}, ${Math.floor(32 + 82 * ratio)})`;
   };
 
   const chartData = monthsList.map(mKey => ({ month: mKey, rev: monthlyRev[mKey] || 0 }));
