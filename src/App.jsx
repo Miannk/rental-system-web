@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { ChevronDown, ChevronRight, Plus, Monitor, Trash2, CalendarDays, Phone, MapPin, User, Upload, CheckCircle, Search, ChevronLeft, RotateCcw } from 'lucide-react';
+import { ChevronDown, ChevronRight, Plus, Monitor, Trash2, CalendarDays, Phone, MapPin, User, Upload, CheckCircle, Search, ChevronLeft, RotateCcw, List } from 'lucide-react';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc, addDoc, writeBatch } from 'firebase/firestore';
@@ -51,12 +51,13 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState("");
   const [activeTab, setActiveTab] = useState('rental'); 
+  
+  // --- 新增：客户智能排序状态 ---
+  const [customerSort, setCustomerSort] = useState('最新');
 
-  // --- 新增：客户详情视图与高亮状态 ---
   const [selectedCustomerId, setSelectedCustomerId] = useState(null);
   const [highlightedOrderId, setHighlightedOrderId] = useState(null);
 
-  // --- 1. 身份验证 ---
   useEffect(() => {
     if (!isCloudMode) return;
     const initAuth = async () => {
@@ -77,11 +78,10 @@ export default function App() {
     return () => unsubscribe();
   }, [isCloudMode]);
 
-  // --- 2. 数据获取 ---
   useEffect(() => {
     if (!isCloudMode) {
       const demoOrders = [
-        { id: '1', customerId: 'cust-1', customerName: '演示客户', phone: '13800000000', address: '本地模式', remark: '', computerSn: 'DEMO-01', startDate: '2026-03-11', days: 30, monthlyRent: 300, paidRent: 300, renewMonths: 0, status: 'active', createdAt: Date.now() }
+        { id: '1', customerId: 'cust-1', customerName: '演示客户', phone: '13800000000', address: '本地模式', remark: '', computerSn: 'DEMO-01', startDate: '2026-03-11', days: 30, monthlyRent: 300, paidRent: 300, renewMonths: 0, status: 'active', createdAt: Date.now(), logs: [{time: Date.now(), msg: '✨ 订单初始创建'}] }
       ];
       setOrders(demoOrders);
       setLoading(false);
@@ -114,12 +114,10 @@ export default function App() {
     };
   }, [user, isCloudMode]);
 
-  // ========================================================
-  // 🌟 核心引擎层：统一派生计算处理订单数据 (解决超期自动结单)
-  // ========================================================
+  // 🌟 核心引擎层
   const processedOrders = useMemo(() => {
     const today = new Date();
-    today.setHours(0, 0, 0, 0); // 绝对校准：砍掉时分秒干扰，避免时间漂移
+    today.setHours(0, 0, 0, 0); 
     
     return orders.map(o => {
       const days = Number(o.days) || 30;
@@ -142,7 +140,6 @@ export default function App() {
       }
 
       let effectiveStatus = o.status;
-      // 【核心强校验】：如果状态是进行中，但超期已大于3天（即剩余天数 < -3），强制视为已结单！
       if (effectiveStatus === 'active' && remD < -3) {
          effectiveStatus = 'completed';
       }
@@ -153,28 +150,25 @@ export default function App() {
         _el: el,
         _remD: remD,
         _expireStr: expireStr,
-        _effectiveStatus: effectiveStatus, // 替代原有 status 作为全站校验核心
+        _effectiveStatus: effectiveStatus,
         _dailyRate: days > 0 ? (Number(o.monthlyRent) || 0) / days : 0
       };
     });
   }, [orders]);
 
 
-  // 全局 KPI 计算 (独立于筛选和搜索，永远展示总数据)
   const globalKpis = useMemo(() => {
     let totalCusts = new Set();
     let rentedComps = 0, totalDaily = 0, totalRev = 0, totalFlow = 0;
 
     processedOrders.forEach(o => {
       const isActive = o._effectiveStatus === 'active';
-
       totalCusts.add(o.customerId);
       totalFlow += Number(o.paidRent) || 0;
 
       if (o.computerSn) {
         if (isActive) {
           rentedComps++;
-          // 未超期才算有效日租
           if (o._remD >= 0) totalDaily += o._dailyRate;
         }
         totalRev += (o._dailyRate * Math.max(0, Math.min(o._el, o._totalDays)));
@@ -190,7 +184,7 @@ export default function App() {
     };
   }, [processedOrders]);
 
-  // 列表数据过滤 (受顶部 Tab 和搜索框控制)
+  // 列表数据过滤与【智能排序引擎】
   const sortedCustomerEntries = useMemo(() => {
     const map = {};
     const lowerQuery = searchQuery.toLowerCase().trim(); 
@@ -201,12 +195,10 @@ export default function App() {
       const isInProgress = isActive && o._remD >= 0;
       const isCompleted = !isActive;
 
-      // 状态过滤
       if (filter === '进行中' && !isInProgress) return;
       if (filter === '已超期' && !isOverdue) return;
       if (filter === '已结单' && !isCompleted) return;
 
-      // 搜索过滤
       if (lowerQuery) {
         const matchName = (o.customerName || '').toLowerCase().includes(lowerQuery);
         const matchPhone = (o.phone || '').toLowerCase().includes(lowerQuery);
@@ -224,12 +216,36 @@ export default function App() {
           img2: o.img2, 
           img3: o.img3, 
           img4: o.img4, 
-          orders: [] 
+          orders: [],
+          totalRev: 0,
+          minRemD: Infinity,
+          activeCount: 0
       };
+      
       map[cid].orders.push(o);
+      
+      // 为排序聚集数据
+      if (isActive) {
+         map[cid].activeCount++;
+         if (o._remD < map[cid].minRemD) map[cid].minRemD = o._remD;
+      }
+      map[cid].totalRev += (o._dailyRate * Math.max(0, Math.min(o._el, o._totalDays)));
     });
 
     return Object.entries(map).sort((a, b) => {
+      const dataA = a[1];
+      const dataB = b[1];
+
+      // 应用智能排序规则
+      if (customerSort === '收益最高') return dataB.totalRev - dataA.totalRev;
+      if (customerSort === '最快到期') {
+         const remA = dataA.minRemD === Infinity ? 99999 : dataA.minRemD;
+         const remB = dataB.minRemD === Infinity ? 99999 : dataB.minRemD;
+         return remA - remB;
+      }
+      if (customerSort === '设备最多') return dataB.activeCount - dataA.activeCount;
+
+      // 默认：最新创建的在前
       const getSortTime = (cid, customerData) => {
         const createdAts = customerData.orders.map(o => o.createdAt).filter(v => v);
         if (createdAts.length > 0) return Math.min(...createdAts); 
@@ -237,24 +253,20 @@ export default function App() {
         if (match) return parseInt(match[0]);
         return Math.min(...customerData.orders.map(o => new Date(o.startDate || 0).getTime()));
       };
-      return getSortTime(a[0], a[1]) - getSortTime(b[0], b[1]);
+      return getSortTime(b[0], b[1]) - getSortTime(a[0], a[1]);
     });
-  }, [processedOrders, filter, searchQuery]);
+  }, [processedOrders, filter, searchQuery, customerSort]);
 
-  // --- 跨页面高亮与自动展开 ---
   useEffect(() => {
     if (activeTab === 'rental' && highlightedOrderId) {
       const foundEntry = sortedCustomerEntries.find(([cid, data]) => data.orders.some(o => o.id === highlightedOrderId));
-      if (foundEntry) {
-         setSelectedCustomerId(foundEntry[0]);
-      }
+      if (foundEntry) setSelectedCustomerId(foundEntry[0]);
+      
       const timer1 = setTimeout(() => {
         const el = document.getElementById(`order-${highlightedOrderId}`);
         if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }, 300);
-      const timer2 = setTimeout(() => {
-        setHighlightedOrderId(null); 
-      }, 4000);
+      const timer2 = setTimeout(() => { setHighlightedOrderId(null); }, 4000);
       return () => { clearTimeout(timer1); clearTimeout(timer2); };
     }
   }, [activeTab, highlightedOrderId, sortedCustomerEntries]);
@@ -264,7 +276,6 @@ export default function App() {
     return sortedCustomerEntries.find(([cid]) => cid === selectedCustomerId);
   }, [selectedCustomerId, sortedCustomerEntries]);
 
-  // --- 3. 数据导入 ---
   const handleImportData = (event) => {
     const file = event.target.files[0];
     if (!file) return;
@@ -297,7 +308,8 @@ export default function App() {
               paidRent: Number(item.paid_rent) || 0, renewMonths: Number(item.renew_months) || 0,
               status: item.status || 'active', isFullSet: item.is_full_set || '否',
               img1: item.img1 || '', img2: item.img2 || '', img3: item.img3 || '', img4: item.img4 || '',
-              createdAt: Date.now() + timeOffset 
+              createdAt: Date.now() + timeOffset,
+              logs: [{ time: Date.now(), msg: '✨ 历史订单包导入创建' }]
             };
             await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'orders'), webOrder);
             timeOffset += 10; 
@@ -326,16 +338,57 @@ export default function App() {
   };
 
   // --- 4. 数据操作 ---
+  
+  // 【一键极速续租功能】
+  const handleQuickRenew = async (order) => {
+    const oldRenew = Number(order.renewMonths) || 0;
+    const newRenew = oldRenew + 1;
+    const days = Number(order.days) || 30;
+    const rent = Number(order.monthlyRent) || 0;
+    
+    // 按已有逻辑运算新的已收金额
+    const newPaid = days === 30 ? rent * (newRenew + 1) : rent;
+
+    const confirmMsg = days === 30
+      ? `确定要为该单执行【一键续租】吗？\n\n将自动增加 1 个月租期。\n收款并自动变更为：¥${newPaid} (含原有收款)`
+      : `确定一键续租吗？\n\n注意：当前为非标准30天周期，将仅增加 1 次续租记录，已收金额需按实际情况核实。`;
+
+    if (!window.confirm(confirmMsg)) return;
+
+    const logEntry = {
+      time: Date.now(),
+      msg: `🟢 一键续租成功！增加 1 个周期，系统自动计算并记录当前总已收账款更新为: ¥${newPaid}`
+    };
+
+    const updates = {
+      renewMonths: newRenew,
+      paidRent: newPaid,
+      logs: [...(order.logs || []), logEntry]
+    };
+
+    if (isCloudMode) {
+       await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'orders', order.id), updates, { merge: true });
+    } else {
+       setOrders(prev => prev.map(o => o.id === order.id ? { ...o, ...updates } : o));
+    }
+  };
+
   const handleUpdateOrder = async (id, field, value) => {
     const oldOrder = orders.find(o => o.id === id);
     
-    // 自动计算逻辑：当修改周期、月租、续租时自动得出“已收数”
     let updates = { [field]: value };
+    // 自动计算逻辑并附加流水日志
     if (['days', 'monthlyRent', 'renewMonths'].includes(field)) {
       const newDays = field === 'days' ? (parseInt(value) || 0) : (parseInt(oldOrder.days) || 30);
       const newRent = field === 'monthlyRent' ? (parseFloat(value) || 0) : (parseFloat(oldOrder.monthlyRent) || 0);
       const newRenew = field === 'renewMonths' ? (parseInt(value) || 0) : (parseInt(oldOrder.renewMonths) || 0);
       updates.paidRent = newDays === 30 ? newRent * (newRenew + 1) : newRent;
+      updates.logs = [...(oldOrder.logs || []), { time: Date.now(), msg: `⚙️ 变更 [${field}] 属性，系统自动重新核算已收账款为: ¥${updates.paidRent}` }];
+    } else if (field === 'paidRent') {
+      updates.logs = [...(oldOrder.logs || []), { time: Date.now(), msg: `💰 手动修正已收金额款项为: ¥${value}` }];
+    } else if (field === 'status') {
+      const statusTxt = value === 'completed' ? '📦 执行订单结单归档，释放设备' : '🔄 恢复订单为进行中，重新占用设备';
+      updates.logs = [...(oldOrder.logs || []), { time: Date.now(), msg: statusTxt }];
     }
 
     if (isCloudMode) {
@@ -412,7 +465,8 @@ export default function App() {
       customerId: cid, customerName: '新客户', phone: '', address: '', remark: '',
       computerSn: '', startDate: new Date().toISOString().split('T')[0], days: 30, monthlyRent: 0, paidRent: 0, renewMonths: 0, status: 'active',
       img1: '', img2: '', img3: '', img4: '',
-      createdAt: Date.now() 
+      createdAt: Date.now(),
+      logs: [{ time: Date.now(), msg: '✨ 新建客户与初始订单档案' }]
     };
     if (isCloudMode) {
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'orders'), newOrder);
@@ -427,7 +481,8 @@ export default function App() {
       customerId, customerName, phone, address, remark: remark || '',
       computerSn: '', startDate: new Date().toISOString().split('T')[0], days: 30, monthlyRent: 0, paidRent: 0, renewMonths: 0, status: 'active',
       img1: '', img2: '', img3: '', img4: '',
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      logs: [{ time: Date.now(), msg: '✨ 新增挂载设备订单' }]
     };
     if (isCloudMode) {
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'orders'), newOrder);
@@ -514,7 +569,7 @@ export default function App() {
 
       <div className="hidden md:flex md:w-56 bg-[#1a1c20] flex-shrink-0 border-r border-gray-800 p-4 flex-col shadow-xl">
         <div className="flex items-center space-x-2 text-white font-bold text-xl mb-8">
-          <Monitor className="text-blue-500" /><span>租赁云管理 <span className="text-blue-400 text-xs align-top">V3</span></span>
+          <Monitor className="text-blue-500" /><span>租赁云管理 <span className="text-blue-400 text-xs align-top">V4</span></span>
           <span className={`text-[10px] px-2 py-1 rounded ml-2 ${isCloudMode ? 'bg-emerald-600 shadow-[0_0_8px_rgba(5,150,105,0.8)]' : 'bg-orange-600'}`}>{isCloudMode ? '在线' : '本地'}</span>
         </div>
         <nav className="space-y-2 flex-1">
@@ -538,17 +593,18 @@ export default function App() {
                onAddDevice={handleAddDevice} 
                onDeleteCustomer={handleDeleteCustomer} 
                onUpdateOrder={handleUpdateOrder} 
-               onDeleteOrder={handleDeleteOrder} 
+               onDeleteOrder={handleDeleteOrder}
+               onQuickRenew={handleQuickRenew}
                highlightedOrderId={highlightedOrderId} 
                computers={computers} 
                orders={processedOrders} 
             />
           ) : (
             <>
-              <div className="flex flex-col mb-6 gap-4 animate-in fade-in duration-300">
+              <div className="flex flex-col mb-4 gap-4 animate-in fade-in duration-300">
                 <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4">
                   <div className="flex items-center gap-3">
-                    <h1 className="text-xl md:text-2xl font-bold text-white whitespace-nowrap">合同与流转 <span className="text-blue-500 text-sm align-top">V3</span></h1>
+                    <h1 className="text-xl md:text-2xl font-bold text-white whitespace-nowrap">合同与流转 <span className="text-blue-500 text-sm align-top">V4</span></h1>
                     <div className="bg-gray-800 p-1 rounded-lg flex space-x-1 text-sm">
                       {['全部', '进行中', '已超期', '已结单'].map(f => (
                         <button key={f} onClick={() => setFilter(f)} className={`px-3 py-1 rounded-md transition ${filter === f ? 'bg-blue-600 text-white' : 'text-gray-400'}`}>{f}</button>
@@ -587,12 +643,22 @@ export default function App() {
               </div>
 
               {/* 永远展示全局所有订单的总计数据，不再受筛选条件变动！ */}
-              <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+              <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-4">
                 <KpiCard title="总客户数" value={globalKpis.custs} />
                 <KpiCard title="在租设备" value={globalKpis.rented} />
                 <KpiCard title="日租" value={`¥ ${globalKpis.daily}`} color="text-orange-500" />
                 <KpiCard title="累计收益" value={`¥ ${globalKpis.rev}`} color="text-emerald-500" />
                 <KpiCard title="流水总额" value={`¥ ${globalKpis.flow}`} color="text-blue-400" className="col-span-2 lg:col-span-1" />
+              </div>
+
+              {/* 智能排序列 */}
+              <div className="flex justify-between items-center mb-6 bg-[#22252b] p-2 rounded-lg border border-gray-800">
+                <span className="text-gray-400 text-xs md:text-sm font-bold ml-2 shrink-0">智能排序挖掘:</span>
+                <div className="flex space-x-1.5 md:space-x-2 overflow-x-auto no-scrollbar">
+                  {['最新', '收益最高', '最快到期', '设备最多'].map(s => (
+                    <button key={s} onClick={() => setCustomerSort(s)} className={`whitespace-nowrap px-3 py-1 text-xs font-bold rounded transition ${customerSort === s ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-400 hover:bg-gray-700'}`}>{s}</button>
+                  ))}
+                </div>
               </div>
 
               <div className="pb-20">
@@ -640,11 +706,9 @@ function KpiCard({ title, value, color = "text-white", className = "" }) {
   );
 }
 
-// 块状客户卡片 (瀑布流布局使用)
 function CustomerCard({ cid, data, onSelect }) {
   let activeCount = 0, overdueCount = 0, tDaily = 0, tAcc = 0;
   
-  // 找到最快到期的订单进度信息
   let fastestRemD = Infinity;
   let fastestRatio = 0;
 
@@ -659,7 +723,6 @@ function CustomerCard({ cid, data, onSelect }) {
            tDaily += o._dailyRate; 
         }
         
-        // 更新最快到期记录
         if (o._remD < fastestRemD) {
             fastestRemD = o._remD;
             fastestRatio = o._totalDays > 0 ? Math.min(Math.max(0, o._el) / o._totalDays, 1) : 0;
@@ -698,7 +761,6 @@ function CustomerCard({ cid, data, onSelect }) {
          </div>
       </div>
 
-      {/* 底部极简进度条 */}
       {activeCount > 0 && (
          <div className="w-full bg-gray-900 h-1 rounded-full overflow-hidden mt-auto">
             <div className={`h-full ${barColor}`} style={{ width: `${fastestRatio * 100}%` }}></div>
@@ -708,8 +770,7 @@ function CustomerCard({ cid, data, onSelect }) {
   );
 }
 
-// 沉浸式客户全屏详情组件 (含移动端响应式优化)
-function CustomerDetailView({ cid, data, onBack, onUpdateCustomer, onAddDevice, onDeleteCustomer, onUpdateOrder, onDeleteOrder, highlightedOrderId, computers, orders }) {
+function CustomerDetailView({ cid, data, onBack, onUpdateCustomer, onAddDevice, onDeleteCustomer, onUpdateOrder, onDeleteOrder, onQuickRenew, highlightedOrderId, computers, orders }) {
   let activeCount = 0, overdueCount = 0, tDaily = 0, tAcc = 0;
 
   const sortedOrders = [...data.orders].sort((a, b) => {
@@ -736,7 +797,7 @@ function CustomerDetailView({ cid, data, onBack, onUpdateCustomer, onAddDevice, 
           <ChevronLeft size={16} className="mr-1"/> 返回客户列表
         </button>
         <h2 className="text-xl md:text-2xl font-bold text-white flex items-center gap-3">
-          客户订单详情 <span className="text-blue-500 text-sm align-top">V3</span>
+          客户订单详情 <span className="text-blue-500 text-sm align-top">V4</span>
         </h2>
       </div>
 
@@ -807,7 +868,7 @@ function CustomerDetailView({ cid, data, onBack, onUpdateCustomer, onAddDevice, 
               <div className="col-span-2">设备编号</div><div className="col-span-2">起租日期</div><div className="col-span-1 text-center">周期</div><div className="col-span-1 text-center">续租</div><div className="col-span-2">进度概览</div><div className="col-span-1 text-center">月租金</div><div className="col-span-1 text-center">日收益</div><div className="col-span-1 text-center">已收</div><div className="col-span-1 text-center">操作</div>
             </div>
             {sortedOrders.map(order => (
-              <OrderRow key={order.id} order={order} isHighlighted={order.id === highlightedOrderId} onUpdate={onUpdateOrder} onDelete={onDeleteOrder} computers={computers} orders={orders} />
+              <OrderRow key={order.id} order={order} isHighlighted={order.id === highlightedOrderId} onUpdate={onUpdateOrder} onDelete={onDeleteOrder} onQuickRenew={onQuickRenew} computers={computers} orders={orders} />
             ))}
           </div>
         </div>
@@ -816,68 +877,93 @@ function CustomerDetailView({ cid, data, onBack, onUpdateCustomer, onAddDevice, 
   );
 }
 
-function OrderRow({ order, onUpdate, onDelete, isHighlighted, computers, orders }) {
+function OrderRow({ order, onUpdate, onDelete, onQuickRenew, isHighlighted, computers, orders }) {
+  const [showLogs, setShowLogs] = useState(false);
   const isActive = order._effectiveStatus === 'active';
   const progressRatio = order._totalDays > 0 ? Math.min(Math.max(0, order._el) / order._totalDays, 1) : 0;
   const barColor = !isActive ? "bg-gray-600" : (order._remD < 3 ? "bg-red-500" : "bg-emerald-500");
   const effectiveDailyRate = (isActive && order._remD >= 0) ? order._dailyRate : 0;
 
   return (
-    <div id={`order-${order.id}`} className={`grid grid-cols-12 gap-2 items-center px-2 py-1.5 rounded border text-xs transition-all duration-500 ease-in-out ${isHighlighted ? 'bg-blue-900/60 border-blue-400 scale-[1.01] shadow-[0_0_15px_rgba(59,130,246,0.4)] z-10 relative' : 'bg-[#1c1c1c] hover:bg-[#252525] border-[#333]'}`}>
-      <div className="col-span-2 flex items-center space-x-2">
-        <div className={`w-1 h-3 rounded-full ${!isActive ? 'bg-gray-600' : (order._remD < 0 ? 'bg-red-500' : 'bg-emerald-500')}`}></div>
-        <select 
-          value={order.computerSn || ''} 
-          onChange={(e) => onUpdate(order.id, 'computerSn', e.target.value)} 
-          className="w-full bg-[#0a0a0a] text-white px-1 py-1 rounded border border-gray-700 outline-none text-xs cursor-pointer hover:border-gray-500 transition-colors"
-        >
-          <option value="">- 请选择 -</option>
-          {computers && [...computers].sort((a,b) => (a.sn||"").localeCompare(b.sn||"", undefined, {numeric:true})).map(c => {
-            const isOccupied = orders && orders.some(o => o._effectiveStatus === 'active' && o.computerSn === c.sn && o.id !== order.id);
-            return (
-              <option key={c.id || c.sn} value={c.sn}>
-                {c.sn} {isOccupied ? '(使用中)' : ''}
-              </option>
-            );
-          })}
-        </select>
-      </div>
-      <div className="col-span-2"><input type="date" value={order.startDate || ''} onChange={(e) => onUpdate(order.id, 'startDate', e.target.value)} className="w-full bg-black text-white px-2 py-1 rounded border border-gray-800 outline-none" /></div>
-      <div className="col-span-1"><input type="number" value={order.days} onChange={(e) => onUpdate(order.id, 'days', e.target.value)} className="w-full text-center bg-black text-white py-1 rounded border border-gray-800 outline-none" /></div>
-      <div className="col-span-1">
-        <select value={order.renewMonths || 0} onChange={(e) => onUpdate(order.id, 'renewMonths', e.target.value)} className="w-full bg-black text-white py-1 rounded border border-gray-800 outline-none">
-          {[0,1,2,3,4,5,6,7,8,9,10,12].map(n => <option key={n} value={n}>{n}</option>)}
-        </select>
-      </div>
-      <div className="col-span-2 px-1">
-        <div className="w-full bg-gray-900 h-1 rounded-full overflow-hidden mb-1"><div className={`h-full ${barColor}`} style={{ width: `${progressRatio * 100}%` }}></div></div>
-        <div className="flex justify-between text-[8px] font-bold text-gray-500 uppercase">
-           <span>{order._remD < 0 ? `超期 ${Math.abs(Math.floor(order._remD))} 天` : `剩 ${Math.floor(order._remD)} 天`}</span>
-           <span>到期:{order._expireStr}</span>
+    <div className="flex flex-col">
+      <div id={`order-${order.id}`} className={`grid grid-cols-12 gap-2 items-center px-2 py-1.5 rounded border text-xs transition-all duration-500 ease-in-out ${isHighlighted ? 'bg-blue-900/60 border-blue-400 scale-[1.01] shadow-[0_0_15px_rgba(59,130,246,0.4)] z-10 relative' : 'bg-[#1c1c1c] hover:bg-[#252525] border-[#333]'}`}>
+        <div className="col-span-2 flex items-center space-x-2">
+          <div className={`w-1 h-3 rounded-full ${!isActive ? 'bg-gray-600' : (order._remD < 0 ? 'bg-red-500' : 'bg-emerald-500')}`}></div>
+          <select 
+            value={order.computerSn || ''} 
+            onChange={(e) => onUpdate(order.id, 'computerSn', e.target.value)} 
+            className="w-full bg-[#0a0a0a] text-white px-1 py-1 rounded border border-gray-700 outline-none text-xs cursor-pointer hover:border-gray-500 transition-colors"
+          >
+            <option value="">- 请选择 -</option>
+            {computers && [...computers].sort((a,b) => (a.sn||"").localeCompare(b.sn||"", undefined, {numeric:true})).map(c => {
+              const isOccupied = orders && orders.some(o => o._effectiveStatus === 'active' && o.computerSn === c.sn && o.id !== order.id);
+              return (
+                <option key={c.id || c.sn} value={c.sn}>
+                  {c.sn} {isOccupied ? '(使用中)' : ''}
+                </option>
+              );
+            })}
+          </select>
+        </div>
+        <div className="col-span-2"><input type="date" value={order.startDate || ''} onChange={(e) => onUpdate(order.id, 'startDate', e.target.value)} className="w-full bg-black text-white px-2 py-1 rounded border border-gray-800 outline-none" /></div>
+        <div className="col-span-1"><input type="number" value={order.days} onChange={(e) => onUpdate(order.id, 'days', e.target.value)} className="w-full text-center bg-black text-white py-1 rounded border border-gray-800 outline-none" /></div>
+        
+        <div className="col-span-1 flex flex-row items-center gap-1">
+          <select value={order.renewMonths || 0} onChange={(e) => onUpdate(order.id, 'renewMonths', e.target.value)} className="w-full min-w-0 bg-black text-white py-1 rounded border border-gray-800 outline-none text-center px-0">
+            {[0,1,2,3,4,5,6,7,8,9,10,12].map(n => <option key={n} value={n}>{n}</option>)}
+          </select>
+          <button onClick={() => onQuickRenew(order)} className="bg-emerald-600/90 hover:bg-emerald-500 text-white rounded shadow-sm px-1.5 h-full flex items-center justify-center font-bold font-mono transition-transform active:scale-95" title="极速一键增加续租">+1</button>
+        </div>
+
+        <div className="col-span-2 px-1">
+          <div className="w-full bg-gray-900 h-1 rounded-full overflow-hidden mb-1"><div className={`h-full ${barColor}`} style={{ width: `${progressRatio * 100}%` }}></div></div>
+          <div className="flex justify-between text-[8px] font-bold text-gray-500 uppercase">
+             <span>{order._remD < 0 ? `超期 ${Math.abs(Math.floor(order._remD))} 天` : `剩 ${Math.floor(order._remD)} 天`}</span>
+             <span>到期:{order._expireStr}</span>
+          </div>
+        </div>
+        <div className="col-span-1"><input type="number" value={order.monthlyRent} onChange={(e) => onUpdate(order.id, 'monthlyRent', e.target.value)} className="w-full text-center bg-black text-emerald-400 py-1 rounded border border-gray-800 font-bold" /></div>
+        <div className="col-span-1 text-center font-bold text-orange-500">{effectiveDailyRate.toFixed(1)}</div>
+        <div className="col-span-1">
+           <input type="number" value={order.paidRent || 0} onChange={(e) => onUpdate(order.id, 'paidRent', e.target.value)} className="w-full text-center bg-[#0a0a0a] text-blue-400 py-1 rounded border border-gray-800 font-bold outline-none focus:border-blue-500 transition-colors" title="修改此处将自动记录流水" />
+        </div>
+        <div className="col-span-1 flex justify-center items-center gap-2">
+          {isActive ? (
+             <button onClick={() => { if(window.confirm("确定要对该单进行【结单归档】吗？设备将自动转为闲置状态。")) onUpdate(order.id, 'status', 'completed'); }} className="text-emerald-500 hover:text-emerald-400 transition" title="结单归档"><CheckCircle size={14} /></button>
+          ) : (
+             <button onClick={() => { 
+               if(order._remD < -3) {
+                  alert("🚨 该订单超期已超3天，受系统保护处于【自动结单】状态！\n请先增加【续租周期】或修改【起租日期】后再执行恢复！");
+                  return;
+               }
+               if(window.confirm("确定要【恢复】此历史订单吗？设备将被重新占用。")) onUpdate(order.id, 'status', 'active'); 
+             }} className="text-blue-500 hover:text-blue-400 transition" title="恢复订单"><RotateCcw size={14} /></button>
+          )}
+          <button onClick={() => setShowLogs(!showLogs)} className={`transition ${showLogs ? 'text-blue-400' : 'text-gray-400 hover:text-blue-400'}`} title="流水与操作日志"><List size={14} /></button>
+          <button onClick={() => onDelete(order.id)} className="text-red-500 hover:text-red-400 transition" title="删除记录"><Trash2 size={14} /></button>
         </div>
       </div>
-      <div className="col-span-1"><input type="number" value={order.monthlyRent} onChange={(e) => onUpdate(order.id, 'monthlyRent', e.target.value)} className="w-full text-center bg-black text-emerald-400 py-1 rounded border border-gray-800 font-bold" /></div>
-      <div className="col-span-1 text-center font-bold text-orange-500">{effectiveDailyRate.toFixed(1)}</div>
-      <div className="col-span-1">
-         <div className="w-full text-center bg-[#0a0a0a] text-blue-400 py-1 rounded border border-gray-800 font-bold">
-            {Number(order.paidRent || 0).toFixed(0)}
-         </div>
-      </div>
-      <div className="col-span-1 flex justify-center gap-2">
-        {isActive ? (
-           <button onClick={() => { if(window.confirm("确定要对该单进行【结单归档】吗？设备将自动转为闲置状态。")) onUpdate(order.id, 'status', 'completed'); }} className="text-emerald-500 hover:text-emerald-400 transition" title="结单归档"><CheckCircle size={14} /></button>
-        ) : (
-           <button onClick={() => { 
-             // 【防呆保护】避免直接恢复又瞬间被自动结单
-             if(order._remD < -3) {
-                alert("🚨 该订单超期已超3天，受系统保护处于【自动结单】状态！\n请先增加【续租周期】或修改【起租日期】后再执行恢复！");
-                return;
-             }
-             if(window.confirm("确定要【恢复】此历史订单吗？设备将被重新占用。")) onUpdate(order.id, 'status', 'active'); 
-           }} className="text-blue-500 hover:text-blue-400 transition" title="恢复订单"><RotateCcw size={14} /></button>
-        )}
-        <button onClick={() => onDelete(order.id)} className="text-red-500 hover:text-red-400 transition" title="删除记录"><Trash2 size={14} /></button>
-      </div>
+      
+      {/* 操作与流水账志扩展面板 */}
+      {showLogs && (
+        <div className="grid grid-cols-12 mb-2 animate-in slide-in-from-top-2">
+          <div className="col-span-12 bg-[#141517] p-3 rounded-b-lg border-x border-b border-[#333] shadow-inner text-xs text-gray-300 ml-2 mr-1">
+             <div className="font-bold text-gray-500 mb-2 border-b border-gray-800 pb-1">操作与流水记录追踪</div>
+             {order.logs && order.logs.length > 0 ? (
+               <ul className="space-y-1.5 max-h-32 overflow-y-auto pr-2 no-scrollbar">
+                 {order.logs.slice().reverse().map((log, idx) => (
+                   <li key={idx} className="flex gap-2">
+                     <span className="text-gray-600 font-mono shrink-0">[{new Date(log.time).toLocaleString('zh-CN', {month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'})}]</span>
+                     <span className={`${log.msg.includes('收款') || log.msg.includes('更新已收') ? 'text-emerald-400 font-bold' : ''}`}>{log.msg}</span>
+                   </li>
+                 ))}
+               </ul>
+             ) : (
+               <p className="text-gray-600">暂无流水日志记录</p>
+             )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -887,7 +973,6 @@ function HomeTab({ orders, onJump }) {
   orders.forEach(o => {
     if (o._effectiveStatus !== 'active' || !o.computerSn) return;
     
-    // 只保留 0~3 天快到期的订单，屏蔽已超期（<0）
     if (o._remD >= 0 && o._remD <= 3) {
       if (!expiringGroups[o.customerId]) expiringGroups[o.customerId] = { cust: o.customerName, phone: o.phone, minRem: o._remD, devices: [] };
       if (o._remD < expiringGroups[o.customerId].minRem) expiringGroups[o.customerId].minRem = o._remD;
@@ -942,7 +1027,7 @@ function CalendarTab({ orders }) {
   const [selectedMonth, setSelectedMonth] = useState(null);
 
   const monthlyRev = {}; let totalAcc = 0; 
-  const today = new Date(); today.setHours(0, 0, 0, 0); // 绝对校准：砍掉时分秒干扰
+  const today = new Date(); today.setHours(0, 0, 0, 0); 
   let earliestDate = new Date(); earliestDate.setHours(0, 0, 0, 0);
 
   orders.forEach(o => {
@@ -951,7 +1036,6 @@ function CalendarTab({ orders }) {
     startD.setHours(0, 0, 0, 0);
     if (startD < earliestDate) earliestDate = startD;
     
-    // 【核心拦截】：限制计算绝不超过 "今天 + 1天(午夜)"，即严格只算到今天的全部金额
     const calcEndD = new Date(Math.min(startD.getTime() + o._totalDays * 86400000, today.getTime() + 86400000));
     let currD = new Date(startD.getTime());
     
@@ -1008,7 +1092,6 @@ function CalendarTab({ orders }) {
              {Array.from({length: firstDayOfWeek}).map((_, i) => <div key={`empty-${i}`} className="h-20 md:h-24 bg-[#1a1c20] rounded-xl border border-gray-800/50"></div>)}
              {Array.from({length: daysInMonth}).map((_, i) => {
                 const day = i+1;
-                // 拦截未来的格子，使其变暗淡，避免迷惑
                 const thisDate = new Date(year, month - 1, day);
                 thisDate.setHours(0, 0, 0, 0);
                 const isFuture = thisDate > today;
@@ -1047,11 +1130,8 @@ function CalendarTab({ orders }) {
   }
   if (monthsList.length === 0) monthsList.push(`${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`);
 
-  const maxRev = Math.max(...Object.values(monthlyRev), 0.01);
   const getColor = (amount) => {
-    if (amount <= 0) return "#2b2b2b";
-    const ratio = amount / maxRev;
-    return `rgb(${Math.floor(30 + 17 * ratio)}, ${Math.floor(70 + 95 * ratio)}, ${Math.floor(32 + 82 * ratio)})`;
+    return "#2b2b2b";
   };
 
   const chartData = monthsList.map(mKey => ({ month: mKey, rev: monthlyRev[mKey] || 0 }));
