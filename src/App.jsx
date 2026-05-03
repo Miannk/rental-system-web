@@ -114,23 +114,59 @@ export default function App() {
     };
   }, [user, isCloudMode]);
 
-  // --- 5. 核心计算 ---
+  // ========================================================
+  // 🌟 核心引擎层：统一派生计算处理订单数据 (解决超期自动结单)
+  // ========================================================
+  const processedOrders = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0); // 绝对校准：砍掉时分秒干扰，避免时间漂移
+    
+    return orders.map(o => {
+      const days = Number(o.days) || 30;
+      const renew = Number(o.renewMonths) || 0;
+      const totalDays = days + renew * 30;
+      
+      let el = 0;
+      let remD = totalDays;
+      let expireStr = "-";
+      
+      if (o.startDate) {
+         const sd = new Date(o.startDate);
+         sd.setHours(0, 0, 0, 0);
+         el = Math.floor((today.getTime() - sd.getTime()) / 86400000);
+         remD = totalDays - el;
+         
+         const expDate = new Date(sd);
+         expDate.setDate(expDate.getDate() + totalDays);
+         expireStr = expDate.toISOString().split('T')[0];
+      }
+
+      let effectiveStatus = o.status;
+      // 【核心强校验】：如果状态是进行中，但超期已大于3天（即剩余天数 < -3），强制视为已结单！
+      if (effectiveStatus === 'active' && remD < -3) {
+         effectiveStatus = 'completed';
+      }
+
+      return {
+        ...o,
+        _totalDays: totalDays,
+        _el: el,
+        _remD: remD,
+        _expireStr: expireStr,
+        _effectiveStatus: effectiveStatus, // 替代原有 status 作为全站校验核心
+        _dailyRate: days > 0 ? (Number(o.monthlyRent) || 0) / days : 0
+      };
+    });
+  }, [orders]);
+
 
   // 全局 KPI 计算 (独立于筛选和搜索，永远展示总数据)
   const globalKpis = useMemo(() => {
     let totalCusts = new Set();
     let rentedComps = 0, totalDaily = 0, totalRev = 0, totalFlow = 0;
-    const today = new Date();
 
-    orders.forEach(o => {
-      const days = Number(o.days) || 30;
-      const renew = Number(o.renewMonths) || 0;
-      const dailyRate = days > 0 ? (Number(o.monthlyRent) || 0) / days : 0;
-      const totalDays = days + (renew * 30);
-      let el = o.startDate ? Math.floor((today - new Date(o.startDate)) / 86400000) : 0;
-      let remD = totalDays - el;
-
-      const isActive = o.status === 'active';
+    processedOrders.forEach(o => {
+      const isActive = o._effectiveStatus === 'active';
 
       totalCusts.add(o.customerId);
       totalFlow += Number(o.paidRent) || 0;
@@ -139,9 +175,9 @@ export default function App() {
         if (isActive) {
           rentedComps++;
           // 未超期才算有效日租
-          if (remD >= 0) totalDaily += dailyRate;
+          if (o._remD >= 0) totalDaily += o._dailyRate;
         }
-        totalRev += (dailyRate * Math.max(0, Math.min(el, totalDays)));
+        totalRev += (o._dailyRate * Math.max(0, Math.min(o._el, o._totalDays)));
       }
     });
 
@@ -152,24 +188,17 @@ export default function App() {
       rev: totalRev.toFixed(2),
       flow: totalFlow.toFixed(2)
     };
-  }, [orders]);
+  }, [processedOrders]);
 
   // 列表数据过滤 (受顶部 Tab 和搜索框控制)
   const sortedCustomerEntries = useMemo(() => {
     const map = {};
-    const today = new Date();
     const lowerQuery = searchQuery.toLowerCase().trim(); 
 
-    orders.forEach(o => {
-      const days = Number(o.days) || 30;
-      const renew = Number(o.renewMonths) || 0;
-      const totalDays = days + (renew * 30);
-      let el = o.startDate ? Math.floor((today - new Date(o.startDate)) / 86400000) : 0;
-      let remD = totalDays - el;
-
-      const isActive = o.status === 'active';
-      const isOverdue = isActive && remD < 0;
-      const isInProgress = isActive && remD >= 0;
+    processedOrders.forEach(o => {
+      const isActive = o._effectiveStatus === 'active';
+      const isOverdue = isActive && o._remD < 0;
+      const isInProgress = isActive && o._remD >= 0;
       const isCompleted = !isActive;
 
       // 状态过滤
@@ -210,7 +239,7 @@ export default function App() {
       };
       return getSortTime(a[0], a[1]) - getSortTime(b[0], b[1]);
     });
-  }, [orders, filter, searchQuery]);
+  }, [processedOrders, filter, searchQuery]);
 
   // --- 跨页面高亮与自动展开 ---
   useEffect(() => {
@@ -315,16 +344,25 @@ export default function App() {
       if (field === 'computerSn') {
         if (oldOrder && oldOrder.computerSn) {
           const oldC = computers.find(c => c.sn === oldOrder.computerSn);
-          if (oldC) await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'computers', oldC.id), { status: 'available' }, { merge: true });
+          if (oldC) {
+             const otherActive = processedOrders.some(o => o.computerSn === oldOrder.computerSn && o._effectiveStatus === 'active' && o.id !== id);
+             await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'computers', oldC.id), { status: otherActive ? 'rented' : 'available' }, { merge: true });
+          }
         }
         if (value) {
           const newC = computers.find(c => c.sn === value);
-          if (newC) await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'computers', newC.id), { status: 'rented' }, { merge: true });
+          if (newC && oldOrder.status === 'active') {
+            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'computers', newC.id), { status: 'rented' }, { merge: true });
+          }
         }
       } else if (field === 'status' && oldOrder && oldOrder.computerSn) {
          const comp = computers.find(c => c.sn === oldOrder.computerSn);
          if (comp) {
-            const newStatus = value === 'active' ? 'rented' : 'available';
+            let newStatus = value === 'active' ? 'rented' : 'available';
+            if (newStatus === 'available') {
+               const otherActive = processedOrders.some(o => o.computerSn === oldOrder.computerSn && o._effectiveStatus === 'active' && o.id !== id);
+               if (otherActive) newStatus = 'rented';
+            }
             await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'computers', comp.id), { status: newStatus }, { merge: true });
          }
       }
@@ -332,14 +370,24 @@ export default function App() {
       setOrders(prev => prev.map(o => o.id === id ? { ...o, ...updates } : o));
       if (field === 'computerSn') {
         setComputers(prev => prev.map(c => {
-          if (oldOrder && c.sn === oldOrder.computerSn) return {...c, status: 'available'};
-          if (c.sn === value) return {...c, status: 'rented'};
+          if (oldOrder && c.sn === oldOrder.computerSn) {
+             const otherActive = processedOrders.some(o => o.computerSn === oldOrder.computerSn && o._effectiveStatus === 'active' && o.id !== id);
+             return {...c, status: otherActive ? 'rented' : 'available'};
+          }
+          if (c.sn === value && oldOrder.status === 'active') {
+             return {...c, status: 'rented'};
+          }
           return c;
         }));
       } else if (field === 'status' && oldOrder && oldOrder.computerSn) {
          setComputers(prev => prev.map(c => {
             if (c.sn === oldOrder.computerSn) {
-               return {...c, status: value === 'active' ? 'rented' : 'available'};
+               let newStatus = value === 'active' ? 'rented' : 'available';
+               if (newStatus === 'available') {
+                  const otherActive = processedOrders.some(o => o.computerSn === oldOrder.computerSn && o._effectiveStatus === 'active' && o.id !== id);
+                  if (otherActive) newStatus = 'rented';
+               }
+               return {...c, status: newStatus};
             }
             return c;
          }));
@@ -395,13 +443,19 @@ export default function App() {
     if (isCloudMode) {
       await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'orders', id));
       if (orderToDelete && orderToDelete.computerSn && orderToDelete.status === 'active') {
-         const comp = computers.find(c => c.sn === orderToDelete.computerSn);
-         if (comp) await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'computers', comp.id), { status: 'available' }, { merge: true });
+         const otherActive = processedOrders.some(o => o.computerSn === orderToDelete.computerSn && o._effectiveStatus === 'active' && o.id !== id);
+         if (!otherActive) {
+            const comp = computers.find(c => c.sn === orderToDelete.computerSn);
+            if (comp) await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'computers', comp.id), { status: 'available' }, { merge: true });
+         }
       }
     } else {
       setOrders(prev => prev.filter(o => o.id !== id));
       if (orderToDelete && orderToDelete.computerSn && orderToDelete.status === 'active') {
-         setComputers(prev => prev.map(c => c.sn === orderToDelete.computerSn ? {...c, status:'available'} : c));
+         const otherActive = processedOrders.some(o => o.computerSn === orderToDelete.computerSn && o._effectiveStatus === 'active' && o.id !== id);
+         if (!otherActive) {
+            setComputers(prev => prev.map(c => c.sn === orderToDelete.computerSn ? {...c, status:'available'} : c));
+         }
       }
     }
   };
@@ -413,15 +467,22 @@ export default function App() {
       for (const order of customerOrders) {
         await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'orders', order.id));
         if (order.computerSn && order.status === 'active') {
-           const comp = computers.find(c => c.sn === order.computerSn);
-           if (comp) await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'computers', comp.id), { status: 'available' }, { merge: true });
+           const otherActive = processedOrders.some(o => o.computerSn === order.computerSn && o._effectiveStatus === 'active' && o.customerId !== customerId);
+           if (!otherActive) {
+              const comp = computers.find(c => c.sn === order.computerSn);
+              if (comp) await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'computers', comp.id), { status: 'available' }, { merge: true });
+           }
         }
       }
     } else {
       setOrders(prev => prev.filter(o => o.customerId !== customerId));
       setComputers(prev => prev.map(c => {
-         const matchedOrder = customerOrders.find(o => o.computerSn === c.sn && o.status === 'active');
-         return matchedOrder ? {...c, status: 'available'} : c;
+         const hasOtherActive = processedOrders.some(o => o.computerSn === c.sn && o._effectiveStatus === 'active' && o.customerId !== customerId);
+         const hadActiveInDeleted = customerOrders.some(o => o.computerSn === c.sn && o.status === 'active');
+         if (hadActiveInDeleted && !hasOtherActive) {
+            return {...c, status: 'available'};
+         }
+         return c;
       }));
     }
     if (selectedCustomerId === customerId) setSelectedCustomerId(null);
@@ -453,7 +514,7 @@ export default function App() {
 
       <div className="hidden md:flex md:w-56 bg-[#1a1c20] flex-shrink-0 border-r border-gray-800 p-4 flex-col shadow-xl">
         <div className="flex items-center space-x-2 text-white font-bold text-xl mb-8">
-          <Monitor className="text-blue-500" /><span>租赁云管理 <span className="text-blue-400 text-xs align-top">V2</span></span>
+          <Monitor className="text-blue-500" /><span>租赁云管理 <span className="text-blue-400 text-xs align-top">V3</span></span>
           <span className={`text-[10px] px-2 py-1 rounded ml-2 ${isCloudMode ? 'bg-emerald-600 shadow-[0_0_8px_rgba(5,150,105,0.8)]' : 'bg-orange-600'}`}>{isCloudMode ? '在线' : '本地'}</span>
         </div>
         <nav className="space-y-2 flex-1">
@@ -480,14 +541,14 @@ export default function App() {
                onDeleteOrder={handleDeleteOrder} 
                highlightedOrderId={highlightedOrderId} 
                computers={computers} 
-               orders={orders} 
+               orders={processedOrders} 
             />
           ) : (
             <>
               <div className="flex flex-col mb-6 gap-4 animate-in fade-in duration-300">
                 <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4">
                   <div className="flex items-center gap-3">
-                    <h1 className="text-xl md:text-2xl font-bold text-white whitespace-nowrap">合同与流转 <span className="text-blue-500 text-sm align-top">V2</span></h1>
+                    <h1 className="text-xl md:text-2xl font-bold text-white whitespace-nowrap">合同与流转 <span className="text-blue-500 text-sm align-top">V3</span></h1>
                     <div className="bg-gray-800 p-1 rounded-lg flex space-x-1 text-sm">
                       {['全部', '进行中', '已超期', '已结单'].map(f => (
                         <button key={f} onClick={() => setFilter(f)} className={`px-3 py-1 rounded-md transition ${filter === f ? 'bg-blue-600 text-white' : 'text-gray-400'}`}>{f}</button>
@@ -550,11 +611,11 @@ export default function App() {
             </>
           )
         ) : activeTab === 'home' ? (
-          <HomeTab orders={orders} onJump={(id) => { setHighlightedOrderId(id); setActiveTab('rental'); }} />
+          <HomeTab orders={processedOrders} onJump={(id) => { setHighlightedOrderId(id); setActiveTab('rental'); }} />
         ) : activeTab === 'equipment' ? (
-          <EquipmentTab computers={computers} orders={orders} isCloudMode={isCloudMode} user={user} db={db} appId={appId} />
+          <EquipmentTab computers={computers} orders={processedOrders} isCloudMode={isCloudMode} user={user} db={db} appId={appId} />
         ) : activeTab === 'calendar' ? (
-          <CalendarTab orders={orders} />
+          <CalendarTab orders={processedOrders} />
         ) : null}
       </div>
 
@@ -582,7 +643,6 @@ function KpiCard({ title, value, color = "text-white", className = "" }) {
 // 块状客户卡片 (瀑布流布局使用)
 function CustomerCard({ cid, data, onSelect }) {
   let activeCount = 0, overdueCount = 0, tDaily = 0, tAcc = 0;
-  const today = new Date();
   
   // 找到最快到期的订单进度信息
   let fastestRemD = Infinity;
@@ -590,28 +650,22 @@ function CustomerCard({ cid, data, onSelect }) {
 
   data.orders.forEach(o => {
     if (o.computerSn) {
-      const days = Number(o.days) || 30, mRent = Number(o.monthlyRent) || 0;
-      const dailyRate = days > 0 ? mRent / days : 0;
-      const totalDays = days + (Number(o.renewMonths) * 30);
-      let el = o.startDate ? Math.floor((today - new Date(o.startDate)) / 86400000) : 0;
-      let remD = totalDays - el;
-      
-      if (o.status === 'active') { 
+      if (o._effectiveStatus === 'active') { 
         activeCount++; 
-        if (remD < 0) {
+        if (o._remD < 0) {
           overdueCount++;
         }
-        if (remD >= 0) {
-           tDaily += dailyRate; 
+        if (o._remD >= 0) {
+           tDaily += o._dailyRate; 
         }
         
         // 更新最快到期记录
-        if (remD < fastestRemD) {
-            fastestRemD = remD;
-            fastestRatio = totalDays > 0 ? Math.min(Math.max(0, el) / totalDays, 1) : 0;
+        if (o._remD < fastestRemD) {
+            fastestRemD = o._remD;
+            fastestRatio = o._totalDays > 0 ? Math.min(Math.max(0, o._el) / o._totalDays, 1) : 0;
         }
       }
-      tAcc += dailyRate * Math.max(0, Math.min(el, totalDays));
+      tAcc += o._dailyRate * Math.max(0, Math.min(o._el, o._totalDays));
     }
   });
 
@@ -657,7 +711,6 @@ function CustomerCard({ cid, data, onSelect }) {
 // 沉浸式客户全屏详情组件 (含移动端响应式优化)
 function CustomerDetailView({ cid, data, onBack, onUpdateCustomer, onAddDevice, onDeleteCustomer, onUpdateOrder, onDeleteOrder, highlightedOrderId, computers, orders }) {
   let activeCount = 0, overdueCount = 0, tDaily = 0, tAcc = 0;
-  const today = new Date();
 
   const sortedOrders = [...data.orders].sort((a, b) => {
     const timeA = a.createdAt || new Date(a.startDate || 0).getTime();
@@ -667,18 +720,12 @@ function CustomerDetailView({ cid, data, onBack, onUpdateCustomer, onAddDevice, 
 
   sortedOrders.forEach(o => {
     if (o.computerSn) {
-      const days = Number(o.days) || 30, mRent = Number(o.monthlyRent) || 0;
-      const dailyRate = days > 0 ? mRent / days : 0;
-      const totalDays = days + (Number(o.renewMonths) * 30);
-      let el = o.startDate ? Math.floor((today - new Date(o.startDate)) / 86400000) : 0;
-      let remD = totalDays - el;
-      
-      if (o.status === 'active') { 
+      if (o._effectiveStatus === 'active') { 
         activeCount++; 
-        if (remD < 0) overdueCount++;
-        if (remD >= 0) tDaily += dailyRate; 
+        if (o._remD < 0) overdueCount++;
+        if (o._remD >= 0) tDaily += o._dailyRate; 
       }
-      tAcc += dailyRate * Math.max(0, Math.min(el, totalDays));
+      tAcc += o._dailyRate * Math.max(0, Math.min(o._el, o._totalDays));
     }
   });
 
@@ -689,7 +736,7 @@ function CustomerDetailView({ cid, data, onBack, onUpdateCustomer, onAddDevice, 
           <ChevronLeft size={16} className="mr-1"/> 返回客户列表
         </button>
         <h2 className="text-xl md:text-2xl font-bold text-white flex items-center gap-3">
-          客户订单详情 <span className="text-blue-500 text-sm align-top">V2</span>
+          客户订单详情 <span className="text-blue-500 text-sm align-top">V3</span>
         </h2>
       </div>
 
@@ -770,26 +817,15 @@ function CustomerDetailView({ cid, data, onBack, onUpdateCustomer, onAddDevice, 
 }
 
 function OrderRow({ order, onUpdate, onDelete, isHighlighted, computers, orders }) {
-  const days = Number(order.days) || 30, mRent = Number(order.monthlyRent) || 0, renew = Number(order.renewMonths) || 0;
-  const isActive = order.status === 'active', dailyRate = days > 0 ? (mRent / days) : 0, totalDays = days + (renew * 30);
-  let el = 0, remD = totalDays, expireStr = "-";
-  if (order.startDate) {
-    const today = new Date(), sd = new Date(order.startDate);
-    el = Math.floor((today - sd) / 86400000);
-    remD = totalDays - el;
-    const expDate = new Date(sd); expDate.setDate(expDate.getDate() + totalDays);
-    expireStr = expDate.toISOString().split('T')[0];
-  }
-  const progressRatio = totalDays > 0 ? Math.min(Math.max(0, el) / totalDays, 1) : 0;
-  
-  const barColor = !isActive ? "bg-gray-600" : (remD < 3 ? "bg-red-500" : "bg-emerald-500");
-  
-  const effectiveDailyRate = (isActive && remD >= 0) ? dailyRate : 0;
+  const isActive = order._effectiveStatus === 'active';
+  const progressRatio = order._totalDays > 0 ? Math.min(Math.max(0, order._el) / order._totalDays, 1) : 0;
+  const barColor = !isActive ? "bg-gray-600" : (order._remD < 3 ? "bg-red-500" : "bg-emerald-500");
+  const effectiveDailyRate = (isActive && order._remD >= 0) ? order._dailyRate : 0;
 
   return (
     <div id={`order-${order.id}`} className={`grid grid-cols-12 gap-2 items-center px-2 py-1.5 rounded border text-xs transition-all duration-500 ease-in-out ${isHighlighted ? 'bg-blue-900/60 border-blue-400 scale-[1.01] shadow-[0_0_15px_rgba(59,130,246,0.4)] z-10 relative' : 'bg-[#1c1c1c] hover:bg-[#252525] border-[#333]'}`}>
       <div className="col-span-2 flex items-center space-x-2">
-        <div className={`w-1 h-3 rounded-full ${!isActive ? 'bg-gray-600' : (remD < 0 ? 'bg-red-500' : 'bg-emerald-500')}`}></div>
+        <div className={`w-1 h-3 rounded-full ${!isActive ? 'bg-gray-600' : (order._remD < 0 ? 'bg-red-500' : 'bg-emerald-500')}`}></div>
         <select 
           value={order.computerSn || ''} 
           onChange={(e) => onUpdate(order.id, 'computerSn', e.target.value)} 
@@ -797,7 +833,7 @@ function OrderRow({ order, onUpdate, onDelete, isHighlighted, computers, orders 
         >
           <option value="">- 请选择 -</option>
           {computers && [...computers].sort((a,b) => (a.sn||"").localeCompare(b.sn||"", undefined, {numeric:true})).map(c => {
-            const isOccupied = orders && orders.some(o => o.status === 'active' && o.computerSn === c.sn && o.id !== order.id);
+            const isOccupied = orders && orders.some(o => o._effectiveStatus === 'active' && o.computerSn === c.sn && o.id !== order.id);
             return (
               <option key={c.id || c.sn} value={c.sn}>
                 {c.sn} {isOccupied ? '(使用中)' : ''}
@@ -816,8 +852,8 @@ function OrderRow({ order, onUpdate, onDelete, isHighlighted, computers, orders 
       <div className="col-span-2 px-1">
         <div className="w-full bg-gray-900 h-1 rounded-full overflow-hidden mb-1"><div className={`h-full ${barColor}`} style={{ width: `${progressRatio * 100}%` }}></div></div>
         <div className="flex justify-between text-[8px] font-bold text-gray-500 uppercase">
-           <span>{remD < 0 ? `超期 ${Math.abs(Math.floor(remD))} 天` : `剩 ${Math.floor(remD)} 天`}</span>
-           <span>到期:{expireStr}</span>
+           <span>{order._remD < 0 ? `超期 ${Math.abs(Math.floor(order._remD))} 天` : `剩 ${Math.floor(order._remD)} 天`}</span>
+           <span>到期:{order._expireStr}</span>
         </div>
       </div>
       <div className="col-span-1"><input type="number" value={order.monthlyRent} onChange={(e) => onUpdate(order.id, 'monthlyRent', e.target.value)} className="w-full text-center bg-black text-emerald-400 py-1 rounded border border-gray-800 font-bold" /></div>
@@ -831,7 +867,14 @@ function OrderRow({ order, onUpdate, onDelete, isHighlighted, computers, orders 
         {isActive ? (
            <button onClick={() => { if(window.confirm("确定要对该单进行【结单归档】吗？设备将自动转为闲置状态。")) onUpdate(order.id, 'status', 'completed'); }} className="text-emerald-500 hover:text-emerald-400 transition" title="结单归档"><CheckCircle size={14} /></button>
         ) : (
-           <button onClick={() => { if(window.confirm("确定要【恢复】此历史订单吗？设备将被重新占用。")) onUpdate(order.id, 'status', 'active'); }} className="text-blue-500 hover:text-blue-400 transition" title="恢复订单"><RotateCcw size={14} /></button>
+           <button onClick={() => { 
+             // 【防呆保护】避免直接恢复又瞬间被自动结单
+             if(order._remD < -3) {
+                alert("🚨 该订单超期已超3天，受系统保护处于【自动结单】状态！\n请先增加【续租周期】或修改【起租日期】后再执行恢复！");
+                return;
+             }
+             if(window.confirm("确定要【恢复】此历史订单吗？设备将被重新占用。")) onUpdate(order.id, 'status', 'active'); 
+           }} className="text-blue-500 hover:text-blue-400 transition" title="恢复订单"><RotateCcw size={14} /></button>
         )}
         <button onClick={() => onDelete(order.id)} className="text-red-500 hover:text-red-400 transition" title="删除记录"><Trash2 size={14} /></button>
       </div>
@@ -840,19 +883,15 @@ function OrderRow({ order, onUpdate, onDelete, isHighlighted, computers, orders 
 }
 
 function HomeTab({ orders, onJump }) {
-  const today = new Date();
   const expiringGroups = {};
   orders.forEach(o => {
-    if (o.status !== 'active' || !o.computerSn) return;
-    const days = Number(o.days) || 30, renew = Number(o.renewMonths) || 0, totalDays = days + renew * 30;
-    let el = o.startDate ? Math.floor((today - new Date(o.startDate)) / 86400000) : 0;
-    const remD = totalDays - el;
+    if (o._effectiveStatus !== 'active' || !o.computerSn) return;
     
-    if (remD >= 0 && remD <= 3) {
-      const expDate = new Date(o.startDate); expDate.setDate(expDate.getDate() + totalDays);
-      if (!expiringGroups[o.customerId]) expiringGroups[o.customerId] = { cust: o.customerName, phone: o.phone, minRem: remD, devices: [] };
-      if (remD < expiringGroups[o.customerId].minRem) expiringGroups[o.customerId].minRem = remD;
-      expiringGroups[o.customerId].devices.push({ id: o.id, sn: o.computerSn, remD, expireStr: expDate.toISOString().split('T')[0] });
+    // 只保留 0~3 天快到期的订单，屏蔽已超期（<0）
+    if (o._remD >= 0 && o._remD <= 3) {
+      if (!expiringGroups[o.customerId]) expiringGroups[o.customerId] = { cust: o.customerName, phone: o.phone, minRem: o._remD, devices: [] };
+      if (o._remD < expiringGroups[o.customerId].minRem) expiringGroups[o.customerId].minRem = o._remD;
+      expiringGroups[o.customerId].devices.push({ id: o.id, sn: o.computerSn, remD: o._remD, expireStr: o._expireStr });
     }
   });
 
@@ -902,19 +941,24 @@ function HomeTab({ orders, onJump }) {
 function CalendarTab({ orders }) {
   const [selectedMonth, setSelectedMonth] = useState(null);
 
-  const monthlyRev = {}; let totalAcc = 0; const today = new Date(); let earliestDate = new Date();
+  const monthlyRev = {}; let totalAcc = 0; 
+  const today = new Date(); today.setHours(0, 0, 0, 0); // 绝对校准：砍掉时分秒干扰
+  let earliestDate = new Date(); earliestDate.setHours(0, 0, 0, 0);
+
   orders.forEach(o => {
     if (!o.computerSn || !o.startDate) return;
-    const days = Number(o.days) || 30, renew = Number(o.renewMonths) || 0, mRent = Number(o.monthlyRent) || 0;
-    const dailyRate = days > 0 ? mRent / days : 0, totalDays = days + renew * 30;
     const startD = new Date(o.startDate);
+    startD.setHours(0, 0, 0, 0);
     if (startD < earliestDate) earliestDate = startD;
     
-    const calcEndD = new Date(Math.min(new Date(startD.getTime() + totalDays * 86400000), new Date(today.getTime() + 86400000)));
-    let currD = new Date(startD);
+    // 【核心拦截】：限制计算绝不超过 "今天 + 1天(午夜)"，即严格只算到今天的全部金额
+    const calcEndD = new Date(Math.min(startD.getTime() + o._totalDays * 86400000, today.getTime() + 86400000));
+    let currD = new Date(startD.getTime());
+    
     while (currD < calcEndD) {
       const key = `${currD.getFullYear()}-${String(currD.getMonth() + 1).padStart(2, '0')}`;
-      monthlyRev[key] = (monthlyRev[key] || 0) + dailyRate; totalAcc += dailyRate;
+      monthlyRev[key] = (monthlyRev[key] || 0) + o._dailyRate; 
+      totalAcc += o._dailyRate;
       currD.setDate(currD.getDate() + 1);
     }
   });
@@ -926,21 +970,19 @@ function CalendarTab({ orders }) {
     
     const dailyRev = {};
     for(let i=1; i<=daysInMonth; i++) dailyRev[i] = 0;
-    
     let monthTotal = 0;
 
     orders.forEach(o => {
         if (!o.computerSn || !o.startDate) return;
-        const days = Number(o.days) || 30, renew = Number(o.renewMonths) || 0, mRent = Number(o.monthlyRent) || 0;
-        const dailyRate = days > 0 ? mRent / days : 0, totalDays = days + renew * 30;
         const startD = new Date(o.startDate);
-        const calcEndD = new Date(Math.min(new Date(startD.getTime() + totalDays * 86400000), new Date(today.getTime() + 86400000)));
+        startD.setHours(0, 0, 0, 0);
+        const calcEndD = new Date(Math.min(startD.getTime() + o._totalDays * 86400000, today.getTime() + 86400000));
         
-        let currD = new Date(startD);
+        let currD = new Date(startD.getTime());
         while (currD < calcEndD) {
           if (currD.getFullYear() == year && (currD.getMonth() + 1) == month) {
-             dailyRev[currD.getDate()] += dailyRate;
-             monthTotal += dailyRate;
+             dailyRev[currD.getDate()] += o._dailyRate;
+             monthTotal += o._dailyRate;
           }
           currD.setDate(currD.getDate() + 1);
         }
@@ -966,6 +1008,19 @@ function CalendarTab({ orders }) {
              {Array.from({length: firstDayOfWeek}).map((_, i) => <div key={`empty-${i}`} className="h-20 md:h-24 bg-[#1a1c20] rounded-xl border border-gray-800/50"></div>)}
              {Array.from({length: daysInMonth}).map((_, i) => {
                 const day = i+1;
+                // 拦截未来的格子，使其变暗淡，避免迷惑
+                const thisDate = new Date(year, month - 1, day);
+                thisDate.setHours(0, 0, 0, 0);
+                const isFuture = thisDate > today;
+                
+                if (isFuture) {
+                    return (
+                        <div key={day} className={`h-20 md:h-24 rounded-xl border border-[#333] border-dashed p-1.5 md:p-2 flex flex-col bg-[#16181b] opacity-40`}>
+                            <span className="text-xs md:text-sm font-bold text-gray-600">{day}</span>
+                        </div>
+                    );
+                }
+
                 const rev = dailyRev[day];
                 let bg = "#1e2024";
                 let txt = "text-gray-500";
@@ -999,30 +1054,21 @@ function CalendarTab({ orders }) {
     return `rgb(${Math.floor(30 + 17 * ratio)}, ${Math.floor(70 + 95 * ratio)}, ${Math.floor(32 + 82 * ratio)})`;
   };
 
-  // --- 新增：柱状走势图绘制逻辑 ---
-  const chartData = monthsList.map(mKey => ({
-    month: mKey,
-    rev: monthlyRev[mKey] || 0
-  }));
-  
+  const chartData = monthsList.map(mKey => ({ month: mKey, rev: monthlyRev[mKey] || 0 }));
   const maxChartRev = Math.max(...chartData.map(d => d.rev), 0.01);
-  
-  // 优化：使用固定细柱体，并通过控制最大步长让它们挨近，居中显示
   const minItemWidth = 28; 
   const svgWidth = Math.max(800, chartData.length * minItemWidth + 100);
   const svgHeight = 220;
   const padTop = 30, padBottom = 30, padLeft = 60, padRight = 30;
   const graphWidth = svgWidth - padLeft - padRight;
   const graphHeight = svgHeight - padTop - padBottom;
-  
-  // 计算每个柱子的坐标和尺寸
   const step = chartData.length > 0 ? graphWidth / chartData.length : graphWidth;
-  const actualStep = Math.min(step, 28); // 限制最大列宽，保证挨得紧密
-  const offsetX = padLeft; // 取消居中，始终靠左对齐，防止手机端首屏看不到数据
+  const actualStep = Math.min(step, 28); 
+  const offsetX = padLeft; 
 
   const bars = chartData.map((d, i) => {
     const center = offsetX + i * actualStep + actualStep / 2;
-    const barWidth = 14; // 固定的细体柱子宽度
+    const barWidth = 14; 
     const h = (d.rev / maxChartRev) * graphHeight;
     const x = center - barWidth / 2;
     const y = padTop + graphHeight - h;
@@ -1033,7 +1079,6 @@ function CalendarTab({ orders }) {
     <div className="pb-20">
       <div className="mb-6"><h1 className="text-xl md:text-2xl font-bold text-white">历史月度收益总览</h1><p className="text-emerald-500 font-bold text-lg mt-2">累计已产生收益: ¥ {totalAcc.toFixed(2)}</p></div>
       
-      {/* 📈 趋势走势柱状图面板 */}
       <div className="bg-[#22252b] rounded-xl p-4 md:p-6 mb-8 border border-gray-800 shadow-sm relative">
          <h3 className="text-gray-400 text-sm font-bold mb-4 flex items-center gap-2"><CalendarDays size={16}/> 收益走势柱状图</h3>
          <div className="w-full overflow-x-auto no-scrollbar">
@@ -1046,7 +1091,6 @@ function CalendarTab({ orders }) {
                    </linearGradient>
                  </defs>
                  
-                 {/* Y轴背景辅助线 */}
                  {[0, 0.5, 1].map(ratio => {
                     const y = padTop + graphHeight - (ratio * graphHeight);
                     return (
@@ -1057,10 +1101,8 @@ function CalendarTab({ orders }) {
                     );
                  })}
 
-                 {/* 柱状图数据节点 */}
                  {bars.map((b, i) => (
                    <g key={i}>
-                     {/* 底部保留一个微小的保底高度避免收益为0时完全看不见柱子位置 */}
                      <rect x={b.x} y={b.y > padTop + graphHeight - 2 ? padTop + graphHeight - 2 : b.y} width={b.w} height={b.h < 2 ? 2 : b.h} fill="url(#barGrad)" rx="2" ry="2" className="hover:opacity-75 transition-opacity cursor-pointer" />
                      {b.rev > 0 && <text x={b.center} y={b.y - 8} fill="#d1d5db" fontSize="10" fontWeight="bold" textAnchor="middle">¥{b.rev.toFixed(0)}</text>}
                      <text x={b.center} y={svgHeight - 10} fill="#6b7280" fontSize="10" textAnchor="middle">{b.month.substring(2).replace('-', '/')}</text>
@@ -1157,6 +1199,9 @@ function ImageUploadSlot({ label, image, onUpload, onRemove }) {
 
 function EquipmentTab({ computers, orders, isCloudMode, user, db, appId }) {
   const [selectedId, setSelectedId] = useState(null);
+  const [compFilter, setCompFilter] = useState('全部');
+
+  const getIsRented = (sn) => orders.some(o => o.computerSn === sn && o._effectiveStatus === 'active');
 
   const handleAddComputer = async () => {
     if (!isCloudMode || !user) return alert("请先连接云端！");
@@ -1175,17 +1220,21 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId }) {
   };
 
   const sortedComputers = [...computers].sort((a, b) => (a.sn || "").localeCompare(b.sn || "", undefined, { numeric: true }));
+  const filteredComputers = sortedComputers.filter(c => {
+      const isRented = getIsRented(c.sn);
+      if (compFilter === '在租' && !isRented) return false;
+      if (compFilter === '空闲' && isRented) return false;
+      return true;
+  });
+
   const selectedComp = useMemo(() => computers.find(c => c.id === selectedId), [computers, selectedId]);
 
   if (selectedComp) {
     const c = selectedComp;
-    const isRented = c.status === 'rented';
+    const isRented = getIsRented(c.sn);
     let machineEarned = 0; 
-    const today = new Date();
     orders.filter(o => o.computerSn === c.sn).forEach(o => {
-      const d = Number(o.days) || 30, totD = d + (Number(o.renewMonths) || 0) * 30;
-      let el = o.startDate ? Math.max(0, Math.floor((today - new Date(o.startDate)) / 86400000)) : 0;
-      machineEarned += (d > 0 ? (Number(o.monthlyRent) || 0) / d : 0) * Math.min(el, totD);
+      machineEarned += o._dailyRate * Math.max(0, Math.min(o._el, o._totalDays));
     });
     const mRoi = (Number(c.cost) || 0) > 0 ? Math.min(machineEarned / Number(c.cost), 1) : 0;
 
@@ -1217,7 +1266,7 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId }) {
             <div className="flex items-center gap-3"><span className="text-gray-500 w-10 shrink-0">显卡</span><input type="text" value={c.gpu || ''} onChange={e=>handleUpdateComputer(c.id, 'gpu', e.target.value)} className="flex-1 min-w-0 bg-[#2b2d33] text-white px-3 py-2 rounded outline-none" /></div>
             <div className="flex items-center gap-3"><span className="text-gray-500 w-10 shrink-0">内存</span><input type="text" value={c.ram || ''} onChange={e=>handleUpdateComputer(c.id, 'ram', e.target.value)} className="flex-1 min-w-0 bg-[#2b2d33] text-white px-3 py-2 rounded outline-none" /></div>
             <div className="flex items-center gap-3"><span className="text-gray-500 w-10 shrink-0">固态</span><input type="text" value={c.ssd || ''} onChange={e=>handleUpdateComputer(c.id, 'ssd', e.target.value)} className="flex-1 min-w-0 bg-[#2b2d33] text-white px-3 py-2 rounded outline-none" /></div>
-            <div className="col-span-1 md:col-span-2 mt-2 md:mt-4 pt-4 border-t border-[#333] flex items-center gap-3"><span className="text-gray-400 font-bold shrink-0">采购成本:</span><input type="number" value={c.cost || ''} onChange={e=>handleUpdateComputer(c.id, 'cost', e.target.value)} className="flex-1 min-w-0 bg-[#2b2d33] text-blue-400 font-bold px-3 py-2 rounded outline-none" /></div>
+            <div className="col-span-1 md:col-span-2 mt-2 md:mt-4 pt-4 border-t border-[#333] flex items-center gap-3"><span className="text-gray-400 font-bold shrink-0">成本</span><input type="number" value={c.cost || ''} onChange={e=>handleUpdateComputer(c.id, 'cost', e.target.value)} className="flex-1 min-w-0 bg-[#2b2d33] text-blue-400 font-bold px-3 py-2 rounded outline-none" /></div>
           </div>
 
           <div>
@@ -1256,13 +1305,20 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId }) {
   const roiColor = totalRoi >= 1.0 ? "#2FA572" : "#3B8ED0";
   
   const totalCount = computers.length;
-  const rentedCount = computers.filter(c => c.status === 'rented').length;
+  const rentedCount = computers.filter(c => getIsRented(c.sn)).length;
   const rentedRatio = totalCount > 0 ? (rentedCount / totalCount) : 0;
 
   return (
     <div className="pb-20">
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="text-xl md:text-2xl font-bold text-white">设备资产库</h2>
+      <div className="flex justify-between items-center mb-6 flex-wrap gap-4">
+        <div className="flex items-center gap-4">
+          <h2 className="text-xl md:text-2xl font-bold text-white">设备资产库</h2>
+          <div className="bg-gray-800 p-1 rounded-lg flex space-x-1 text-sm">
+            {['全部', '在租', '空闲'].map(f => (
+              <button key={f} onClick={() => setCompFilter(f)} className={`px-3 py-1 rounded-md transition ${compFilter === f ? 'bg-blue-600 text-white' : 'text-gray-400'}`}>{f}</button>
+            ))}
+          </div>
+        </div>
         <button onClick={handleAddComputer} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl font-bold shadow-lg shadow-blue-500/20 flex items-center gap-2 transition-transform active:scale-95"><Plus size={18} /> 新增空闲设备</button>
       </div>
 
@@ -1290,16 +1346,13 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId }) {
       </div>
 
       <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 md:gap-6 items-start">
-        {sortedComputers.map(c => {
-           const isRented = c.status === 'rented';
+        {filteredComputers.map(c => {
+           const isRented = getIsRented(c.sn);
            const costVal = Number(c.cost) || 0;
            
            let machineEarned = 0; 
-           const today = new Date();
            orders.filter(o => o.computerSn === c.sn).forEach(o => {
-             const d = Number(o.days) || 30, totD = d + (Number(o.renewMonths) || 0) * 30;
-             let el = o.startDate ? Math.max(0, Math.floor((today - new Date(o.startDate)) / 86400000)) : 0;
-             machineEarned += (d > 0 ? (Number(o.monthlyRent) || 0) / d : 0) * Math.min(el, totD);
+             machineEarned += o._dailyRate * Math.max(0, Math.min(o._el, o._totalDays));
            });
 
            return (
