@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { ChevronDown, ChevronRight, Plus, Monitor, Trash2, CalendarDays, Phone, MapPin, User, Upload, CheckCircle, Search, ChevronLeft, RotateCcw, List } from 'lucide-react';
+import { ChevronDown, ChevronRight, Plus, Monitor, Trash2, CalendarDays, Phone, MapPin, User, Upload, CheckCircle, Search, ChevronLeft, RotateCcw, List, Maximize } from 'lucide-react';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc, addDoc, writeBatch } from 'firebase/firestore';
@@ -54,6 +54,7 @@ export default function App() {
   const [customerSort, setCustomerSort] = useState('最新');
   const [selectedCustomerId, setSelectedCustomerId] = useState(null);
   const [highlightedOrderId, setHighlightedOrderId] = useState(null);
+  const [previewImage, setPreviewImage] = useState(null);
 
   useEffect(() => {
     if (!isCloudMode) return;
@@ -310,19 +311,12 @@ export default function App() {
           let timeOffset = 0;
           for (const item of jsonData.orders) {
             const webOrder = {
-              customerId: item.customer_id || item.customerId || `import-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-              customerName: item.customer_name || item.customerName || '', 
-              phone: item.phone || '', 
-              address: item.address || '', 
-              remark: item.remark || '',
-              computerSn: item.computer_sn || item.computerSn || '', 
-              startDate: item.start_date || item.startDate || new Date().toISOString().split('T')[0],
-              days: Number(item.days) || 30, 
-              monthlyRent: Number(item.monthly_rent || item.monthlyRent) || 0,
-              paidRent: Number(item.paid_rent || item.paidRent) || 0, 
-              renewMonths: Number(item.renew_months || item.renewMonths) || 0,
-              status: item.status || 'active', 
-              isFullSet: item.is_full_set || '否',
+              customerId: item.customer_id || `import-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+              customerName: item.customer_name || '', phone: item.phone || '', address: item.address || '', remark: item.remark || '',
+              computerSn: item.computer_sn || '', startDate: item.start_date || new Date().toISOString().split('T')[0],
+              days: Number(item.days) || 30, monthlyRent: Number(item.monthly_rent) || 0,
+              paidRent: Number(item.paid_rent) || 0, renewMonths: Number(item.renew_months) || 0,
+              status: item.status || 'active', isFullSet: item.is_full_set || '否',
               // 兼容导入 10 图
               img1: item.img1 || '', img2: item.img2 || '', img3: item.img3 || '', img4: item.img4 || '', img5: item.img5 || '', 
               img6: item.img6 || '', img7: item.img7 || '', img8: item.img8 || '', img9: item.img9 || '', img10: item.img10 || '',
@@ -357,7 +351,8 @@ export default function App() {
     event.target.value = '';
   };
 
-  // --- 数据操作 ---
+  // --- 4. 数据操作 ---
+  
   const handleQuickRenew = async (order) => {
     const oldRenew = Number(order.renewMonths) || 0;
     const newRenew = oldRenew + 1;
@@ -622,6 +617,7 @@ export default function App() {
                highlightedOrderId={highlightedOrderId} 
                computers={computers} 
                orders={processedOrders} 
+               onPreviewImage={setPreviewImage}
             />
           ) : (
             <>
@@ -701,13 +697,13 @@ export default function App() {
         ) : activeTab === 'home' ? (
           <HomeTab orders={processedOrders} onJump={(id) => { setHighlightedOrderId(id); setActiveTab('rental'); }} />
         ) : activeTab === 'equipment' ? (
-          <EquipmentTab computers={computers} orders={processedOrders} isCloudMode={isCloudMode} user={user} db={db} appId={appId} />
+          <EquipmentTab computers={computers} orders={processedOrders} isCloudMode={isCloudMode} user={user} db={db} appId={appId} onPreviewImage={setPreviewImage} />
         ) : activeTab === 'calendar' ? (
           <CalendarTab orders={processedOrders} />
         ) : null}
       </div>
 
-      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-[#1a1c20] border-t border-gray-800 flex justify-around items-center z-[999999] h-16 pb-safe shadow-[0_-4px_15px_rgba(0,0,0,0.8)]">
+      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-[#1a1c20] border-t border-gray-800 flex justify-around items-center z-[99999] h-16 pb-safe shadow-[0_-4px_15px_rgba(0,0,0,0.8)]">
         {navTabs.map(tab => (
           <button key={tab.id} onClick={() => { setActiveTab(tab.id); setSelectedCustomerId(null); }} className={`flex flex-col items-center justify-center w-full h-full ${activeTab === tab.id ? 'text-blue-400' : 'text-gray-500'}`}>
             <span className={`text-xl mb-1 ${activeTab === tab.id ? 'scale-110' : ''} transition-transform`}>{tab.icon}</span>
@@ -715,6 +711,16 @@ export default function App() {
           </button>
         ))}
       </div>
+
+      {/* 图片全屏预览组件 */}
+      {previewImage && (
+        <div className="fixed inset-0 z-[999999] bg-black/90 flex items-center justify-center p-4 backdrop-blur-sm transition-opacity" onClick={() => setPreviewImage(null)}>
+          <img src={previewImage} className="max-w-full max-h-[90vh] object-contain cursor-zoom-out shadow-2xl rounded" onClick={(e) => e.stopPropagation()} />
+          <button className="absolute top-4 right-4 md:top-8 md:right-8 text-white bg-white/10 hover:bg-white/30 rounded-full p-2 transition" onClick={() => setPreviewImage(null)}>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -794,7 +800,7 @@ function CustomerCard({ cid, data, onSelect }) {
   );
 }
 
-function CustomerDetailView({ cid, data, onBack, onUpdateCustomer, onAddDevice, onDeleteCustomer, onUpdateOrder, onDeleteOrder, onQuickRenew, highlightedOrderId, computers, orders }) {
+function CustomerDetailView({ cid, data, onBack, onUpdateCustomer, onAddDevice, onDeleteCustomer, onUpdateOrder, onDeleteOrder, onQuickRenew, highlightedOrderId, computers, orders, onPreviewImage }) {
   let activeCount = 0, overdueCount = 0, tDaily = 0, tAcc = 0, tPaid = 0;
 
   const sortedOrders = [...data.orders].sort((a, b) => {
@@ -876,16 +882,16 @@ function CustomerDetailView({ cid, data, onBack, onUpdateCustomer, onAddDevice, 
                 {/* 🌟 核心修改 1：扩充到 10 个附件，两行展示 */}
                 <span className="text-gray-400 text-xs md:text-sm font-bold mb-3 block">客户档案附件 (点击存入身份证/执照截图) <span className="text-blue-500 text-xs font-normal ml-2">支持10图</span></span>
                 <div className="grid grid-cols-3 md:grid-cols-5 gap-2 md:gap-3 w-full max-w-4xl">
-                   <ImageUploadSlot label="附件1" image={data.img1} onUpload={(b) => onUpdateCustomer(cid, 'img1', b)} onRemove={() => onUpdateCustomer(cid, 'img1', '')} />
-                   <ImageUploadSlot label="附件2" image={data.img2} onUpload={(b) => onUpdateCustomer(cid, 'img2', b)} onRemove={() => onUpdateCustomer(cid, 'img2', '')} />
-                   <ImageUploadSlot label="附件3" image={data.img3} onUpload={(b) => onUpdateCustomer(cid, 'img3', b)} onRemove={() => onUpdateCustomer(cid, 'img3', '')} />
-                   <ImageUploadSlot label="附件4" image={data.img4} onUpload={(b) => onUpdateCustomer(cid, 'img4', b)} onRemove={() => onUpdateCustomer(cid, 'img4', '')} />
-                   <ImageUploadSlot label="附件5" image={data.img5} onUpload={(b) => onUpdateCustomer(cid, 'img5', b)} onRemove={() => onUpdateCustomer(cid, 'img5', '')} />
-                   <ImageUploadSlot label="附件6" image={data.img6} onUpload={(b) => onUpdateCustomer(cid, 'img6', b)} onRemove={() => onUpdateCustomer(cid, 'img6', '')} />
-                   <ImageUploadSlot label="附件7" image={data.img7} onUpload={(b) => onUpdateCustomer(cid, 'img7', b)} onRemove={() => onUpdateCustomer(cid, 'img7', '')} />
-                   <ImageUploadSlot label="附件8" image={data.img8} onUpload={(b) => onUpdateCustomer(cid, 'img8', b)} onRemove={() => onUpdateCustomer(cid, 'img8', '')} />
-                   <ImageUploadSlot label="附件9" image={data.img9} onUpload={(b) => onUpdateCustomer(cid, 'img9', b)} onRemove={() => onUpdateCustomer(cid, 'img9', '')} />
-                   <ImageUploadSlot label="附件10" image={data.img10} onUpload={(b) => onUpdateCustomer(cid, 'img10', b)} onRemove={() => onUpdateCustomer(cid, 'img10', '')} />
+                   <ImageUploadSlot label="附件1" image={data.img1} onUpload={(b) => onUpdateCustomer(cid, 'img1', b)} onRemove={() => onUpdateCustomer(cid, 'img1', '')} onPreview={onPreviewImage} />
+                   <ImageUploadSlot label="附件2" image={data.img2} onUpload={(b) => onUpdateCustomer(cid, 'img2', b)} onRemove={() => onUpdateCustomer(cid, 'img2', '')} onPreview={onPreviewImage} />
+                   <ImageUploadSlot label="附件3" image={data.img3} onUpload={(b) => onUpdateCustomer(cid, 'img3', b)} onRemove={() => onUpdateCustomer(cid, 'img3', '')} onPreview={onPreviewImage} />
+                   <ImageUploadSlot label="附件4" image={data.img4} onUpload={(b) => onUpdateCustomer(cid, 'img4', b)} onRemove={() => onUpdateCustomer(cid, 'img4', '')} onPreview={onPreviewImage} />
+                   <ImageUploadSlot label="附件5" image={data.img5} onUpload={(b) => onUpdateCustomer(cid, 'img5', b)} onRemove={() => onUpdateCustomer(cid, 'img5', '')} onPreview={onPreviewImage} />
+                   <ImageUploadSlot label="附件6" image={data.img6} onUpload={(b) => onUpdateCustomer(cid, 'img6', b)} onRemove={() => onUpdateCustomer(cid, 'img6', '')} onPreview={onPreviewImage} />
+                   <ImageUploadSlot label="附件7" image={data.img7} onUpload={(b) => onUpdateCustomer(cid, 'img7', b)} onRemove={() => onUpdateCustomer(cid, 'img7', '')} onPreview={onPreviewImage} />
+                   <ImageUploadSlot label="附件8" image={data.img8} onUpload={(b) => onUpdateCustomer(cid, 'img8', b)} onRemove={() => onUpdateCustomer(cid, 'img8', '')} onPreview={onPreviewImage} />
+                   <ImageUploadSlot label="附件9" image={data.img9} onUpload={(b) => onUpdateCustomer(cid, 'img9', b)} onRemove={() => onUpdateCustomer(cid, 'img9', '')} onPreview={onPreviewImage} />
+                   <ImageUploadSlot label="附件10" image={data.img10} onUpload={(b) => onUpdateCustomer(cid, 'img10', b)} onRemove={() => onUpdateCustomer(cid, 'img10', '')} onPreview={onPreviewImage} />
                 </div>
              </div>
 
@@ -1258,7 +1264,7 @@ function CalendarTab({ orders }) {
 }
 
 // 🌟 核心防误触图片组件：加入 pointer-events-none 彻底阻止手机浏览器自作聪明放大图片！
-function ImageUploadSlot({ label, image, onUpload, onRemove }) {
+function ImageUploadSlot({ label, image, onUpload, onRemove, onPreview }) {
   const handleFile = (e) => {
     const file = e.target.files[0];
     if(!file) return;
@@ -1311,16 +1317,22 @@ function ImageUploadSlot({ label, image, onUpload, onRemove }) {
       </label>
       
       {image && (
-         <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); onRemove(); }} 
-            className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity shadow-lg z-10">
-            <Trash2 size={10} />
-         </button>
+         <>
+           <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); onPreview && onPreview(image); }} 
+              className="absolute top-1 left-1 bg-black/60 hover:bg-blue-600 text-white rounded p-1.5 opacity-0 group-hover:opacity-100 transition-all z-10 shadow-sm">
+              <Maximize size={12} />
+           </button>
+           <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); if(window.confirm('确定删除这张图片吗？')) onRemove(); }} 
+              className="absolute top-1 right-1 bg-red-500/90 hover:bg-red-500 text-white rounded p-1.5 opacity-0 group-hover:opacity-100 transition-all z-10 shadow-sm">
+              <Trash2 size={12} />
+           </button>
+         </>
       )}
     </div>
   );
 }
 
-function EquipmentTab({ computers, orders, isCloudMode, user, db, appId }) {
+function EquipmentTab({ computers, orders, isCloudMode, user, db, appId, onPreviewImage }) {
   const [selectedId, setSelectedId] = useState(null);
   const [compFilter, setCompFilter] = useState('全部');
 
@@ -1396,6 +1408,7 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId }) {
           </div>
 
           <div>
+             {/* 🌟 核心修改 2：扩充到 8 个附件，两排展示 */}
              <span className="text-gray-400 text-sm font-bold mb-3 md:mb-4 block">设备档案图 (点击上传) <span className="text-blue-500 text-xs font-normal ml-2">支持8图</span></span>
              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
                 {['img1', 'img2', 'img3', 'img4', 'img5', 'img6', 'img7', 'img8'].map((imgKey, i) => (
@@ -1405,6 +1418,7 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId }) {
                      image={c[imgKey]} 
                      onUpload={(b64) => handleUpdateComputer(c.id, imgKey, b64)} 
                      onRemove={() => handleUpdateComputer(c.id, imgKey, '')} 
+                     onPreview={onPreviewImage}
                    />
                 ))}
              </div>
