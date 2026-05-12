@@ -769,7 +769,7 @@ function CustomerCard({ cid, data, onSelect }) {
   const barColor = fastestRemD < 3 ? "bg-red-500" : "bg-emerald-500";
 
   return (
-    <div onClick={() => onSelect(cid)} className="bg-[#1e2024] rounded-xl border border-[#3c3f41] p-4 cursor-pointer hover:border-gray-500 transition-all hover:scale-105 shadow-sm group relative flex flex-col h-40">
+    <div onClick={() => onSelect(cid)} className="bg-[#1e2024] rounded-xl border border-[#3c3f41] p-4 cursor-pointer hover:border-gray-500 transition-all hover:scale-105 shadow-sm group relative flex flex-col min-h-[10rem] h-auto">
       <div className="flex-1">
          <div className="flex justify-between items-start mb-2">
             <div className="font-bold text-white text-lg truncate pr-2 group-hover:text-blue-400 transition-colors">{data.name || '未命名客户'}</div>
@@ -784,7 +784,7 @@ function CustomerCard({ cid, data, onSelect }) {
             <div className="text-orange-500 font-bold text-sm">¥ {tDaily.toFixed(1)}</div>
          </div>
          <div className="text-right">
-            {/* 🌟 核心修改 3：去掉“累计收益”文案，直观展示 累计收益/流水总额 */}
+            <div className="text-gray-500 text-[10px] mb-0.5">累计收益 / 已收</div>
             <div className="text-emerald-500 font-bold text-sm md:text-base tracking-wide">
                ¥ {tAcc.toFixed(1)} <span className="text-gray-500 text-[11px] font-normal tracking-normal ml-0.5">/ {tPaid.toFixed(1)}</span>
             </div>
@@ -792,8 +792,16 @@ function CustomerCard({ cid, data, onSelect }) {
       </div>
 
       {activeCount > 0 && (
-         <div className="w-full bg-gray-900 h-1 rounded-full overflow-hidden mt-auto">
-            <div className={`h-full ${barColor}`} style={{ width: `${fastestRatio * 100}%` }}></div>
+         <div className="w-full mt-auto pt-1">
+            <div className="flex justify-between text-[9px] text-gray-500 mb-1 font-bold">
+               <span>最快到期进度</span>
+               <span className={fastestRemD < 0 ? "text-red-400" : "text-emerald-500"}>
+                  {fastestRemD < 0 ? `超期 ${Math.abs(Math.floor(fastestRemD))} 天` : `剩 ${Math.floor(fastestRemD)} 天`}
+               </span>
+            </div>
+            <div className="w-full bg-black/40 h-1.5 rounded-full overflow-hidden">
+               <div className={`h-full ${barColor}`} style={{ width: `${fastestRatio * 100}%` }}></div>
+            </div>
          </div>
       )}
     </div>
@@ -867,9 +875,8 @@ function CustomerDetailView({ cid, data, onBack, onUpdateCustomer, onAddDevice, 
                <div className="w-px h-6 bg-gray-700 mx-1"></div>
                <div className="text-center px-1"><div className="text-gray-500 text-[10px] md:text-xs mb-1">日租</div><div className="text-orange-500 font-bold text-sm md:text-base">¥{tDaily.toFixed(1)}</div></div>
                <div className="w-px h-6 bg-gray-700 mx-1"></div>
-               {/* 🌟 核心修改 3：同步修改详情页头的展示格式 */}
                <div className="text-center px-1">
-                 <div className="text-gray-500 text-[10px] md:text-xs mb-1">&nbsp;</div>
+                 <div className="text-gray-500 text-[10px] md:text-xs mb-1">累计收益 / 已收</div>
                  <div className="text-emerald-500 font-bold text-sm md:text-base tracking-wide">
                     ¥{tAcc.toFixed(1)} <span className="text-gray-500 text-[11px] font-normal tracking-normal ml-0.5">/ {tPaid.toFixed(1)}</span>
                  </div>
@@ -1499,7 +1506,7 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId, onPrevi
              <div 
                key={c.id} 
                onClick={() => setSelectedId(c.id)}
-               className="bg-[#1e2024] rounded-xl border border-[#3c3f41] flex flex-col justify-between h-28 md:h-32 cursor-pointer hover:border-gray-500 transition-all hover:scale-105 shadow-sm group p-3"
+               className="bg-[#1e2024] rounded-xl border border-[#3c3f41] flex flex-col justify-between min-h-[7rem] h-auto cursor-pointer hover:border-gray-500 transition-all hover:scale-105 shadow-sm group p-3"
              >
                <div className="flex-1 flex items-center justify-center gap-2 md:gap-3 transition-transform duration-300">
                  <div className={`w-2 h-2 md:w-3 md:h-3 shrink-0 rounded-full ${isRented ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)] animate-pulse' : 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]'}`}></div>
@@ -1510,7 +1517,7 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId, onPrevi
                  <div className="flex justify-end items-end text-[10px] mb-1 px-0.5">
                     <span className="text-gray-500 scale-90 origin-right"><span className={machineEarned >= costVal ? "text-emerald-500" : "text-red-500"}>{machineEarned.toFixed(0)}</span> / {costVal.toFixed(0)}</span>
                  </div>
-                 <div className="w-full bg-gray-800 h-1 rounded-full overflow-hidden">
+                 <div className="w-full bg-black/40 h-1.5 rounded-full overflow-hidden">
                    <div className={`h-full ${machineEarned >= costVal ? 'bg-emerald-500' : 'bg-red-500'}`} style={{ width: `${Math.min((machineEarned / (costVal || 1)) * 100, 100)}%` }}></div>
                  </div>
                </div>
