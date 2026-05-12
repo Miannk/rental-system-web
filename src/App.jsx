@@ -160,7 +160,7 @@ export default function App() {
 
     processedOrders.forEach(o => {
       const isActive = o._effectiveStatus === 'active';
-      totalCusts.add(o.customerId);
+      if(o.customerId) totalCusts.add(o.customerId);
       totalFlow += Number(o.paidRent) || 0;
 
       if (o.computerSn) {
@@ -254,6 +254,7 @@ export default function App() {
       }
       if (customerSort === '设备最多') return dataB.activeCount - dataA.activeCount;
 
+      // 默认：最新创建的在前
       const getSortTime = (cid, customerData) => {
         const createdAts = customerData.orders.map(o => o.createdAt).filter(v => v);
         if (createdAts.length > 0) return Math.min(...createdAts); 
@@ -309,12 +310,19 @@ export default function App() {
           let timeOffset = 0;
           for (const item of jsonData.orders) {
             const webOrder = {
-              customerId: item.customer_id || `import-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-              customerName: item.customer_name || '', phone: item.phone || '', address: item.address || '', remark: item.remark || '',
-              computerSn: item.computer_sn || '', startDate: item.start_date || new Date().toISOString().split('T')[0],
-              days: Number(item.days) || 30, monthlyRent: Number(item.monthly_rent) || 0,
-              paidRent: Number(item.paid_rent) || 0, renewMonths: Number(item.renew_months) || 0,
-              status: item.status || 'active', isFullSet: item.is_full_set || '否',
+              customerId: item.customer_id || item.customerId || `import-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+              customerName: item.customer_name || item.customerName || '', 
+              phone: item.phone || '', 
+              address: item.address || '', 
+              remark: item.remark || '',
+              computerSn: item.computer_sn || item.computerSn || '', 
+              startDate: item.start_date || item.startDate || new Date().toISOString().split('T')[0],
+              days: Number(item.days) || 30, 
+              monthlyRent: Number(item.monthly_rent || item.monthlyRent) || 0,
+              paidRent: Number(item.paid_rent || item.paidRent) || 0, 
+              renewMonths: Number(item.renew_months || item.renewMonths) || 0,
+              status: item.status || 'active', 
+              isFullSet: item.is_full_set || '否',
               // 兼容导入 10 图
               img1: item.img1 || '', img2: item.img2 || '', img3: item.img3 || '', img4: item.img4 || '', img5: item.img5 || '', 
               img6: item.img6 || '', img7: item.img7 || '', img8: item.img8 || '', img9: item.img9 || '', img10: item.img10 || '',
@@ -349,8 +357,7 @@ export default function App() {
     event.target.value = '';
   };
 
-  // --- 4. 数据操作 ---
-  
+  // --- 数据操作 ---
   const handleQuickRenew = async (order) => {
     const oldRenew = Number(order.renewMonths) || 0;
     const newRenew = oldRenew + 1;
@@ -385,8 +392,8 @@ export default function App() {
 
   const handleUpdateOrder = async (id, field, value) => {
     const oldOrder = orders.find(o => o.id === id);
-    
     let updates = { [field]: value };
+    
     if (['days', 'monthlyRent', 'renewMonths'].includes(field)) {
       const newDays = field === 'days' ? (parseInt(value) || 0) : (parseInt(oldOrder.days) || 30);
       const newRent = field === 'monthlyRent' ? (parseFloat(value) || 0) : (parseFloat(oldOrder.monthlyRent) || 0);
@@ -430,6 +437,30 @@ export default function App() {
       }
     } else {
       setOrders(prev => prev.map(o => o.id === id ? { ...o, ...updates } : o));
+      if (field === 'computerSn') {
+        setComputers(prev => prev.map(c => {
+          if (oldOrder && c.sn === oldOrder.computerSn) {
+             const otherActive = processedOrders.some(o => o.computerSn === oldOrder.computerSn && o._effectiveStatus === 'active' && o.id !== id);
+             return {...c, status: otherActive ? 'rented' : 'available'};
+          }
+          if (c.sn === value && oldOrder.status === 'active') {
+             return {...c, status: 'rented'};
+          }
+          return c;
+        }));
+      } else if (field === 'status' && oldOrder && oldOrder.computerSn) {
+         setComputers(prev => prev.map(c => {
+            if (c.sn === oldOrder.computerSn) {
+               let newStatus = value === 'active' ? 'rented' : 'available';
+               if (newStatus === 'available') {
+                  const otherActive = processedOrders.some(o => o.computerSn === oldOrder.computerSn && o._effectiveStatus === 'active' && o.id !== id);
+                  if (otherActive) newStatus = 'rented';
+               }
+               return {...c, status: newStatus};
+            }
+            return c;
+         }));
+      }
     }
   };
 
@@ -499,6 +530,12 @@ export default function App() {
       }
     } else {
       setOrders(prev => prev.filter(o => o.id !== id));
+      if (orderToDelete && orderToDelete.computerSn && orderToDelete.status === 'active') {
+         const otherActive = processedOrders.some(o => o.computerSn === orderToDelete.computerSn && o._effectiveStatus === 'active' && o.id !== id);
+         if (!otherActive) {
+            setComputers(prev => prev.map(c => c.sn === orderToDelete.computerSn ? {...c, status:'available'} : c));
+         }
+      }
     }
   };
 
@@ -518,6 +555,14 @@ export default function App() {
       }
     } else {
       setOrders(prev => prev.filter(o => o.customerId !== customerId));
+      setComputers(prev => prev.map(c => {
+         const hasOtherActive = processedOrders.some(o => o.computerSn === c.sn && o._effectiveStatus === 'active' && o.customerId !== customerId);
+         const hadActiveInDeleted = customerOrders.some(o => o.computerSn === c.sn && o.status === 'active');
+         if (hadActiveInDeleted && !hasOtherActive) {
+            return {...c, status: 'available'};
+         }
+         return c;
+      }));
     }
     if (selectedCustomerId === customerId) setSelectedCustomerId(null);
   };
@@ -1212,6 +1257,7 @@ function CalendarTab({ orders }) {
   );
 }
 
+// 🌟 核心防误触图片组件：加入 pointer-events-none 彻底阻止手机浏览器自作聪明放大图片！
 function ImageUploadSlot({ label, image, onUpload, onRemove }) {
   const handleFile = (e) => {
     const file = e.target.files[0];
@@ -1254,9 +1300,10 @@ function ImageUploadSlot({ label, image, onUpload, onRemove }) {
     <div className="relative aspect-square group">
       <label className="cursor-pointer w-full h-full bg-[#1a1c20] rounded border border-dashed border-gray-700 hover:border-blue-500 hover:bg-blue-900/10 flex flex-col items-center justify-center overflow-hidden transition-colors">
         {image ? (
-          <img src={image} className="object-cover w-full h-full" alt={label} />
+          // 这里添加 pointer-events-none，完美拦截原生相册的图片放大事件
+          <img src={image} className="object-cover w-full h-full pointer-events-none select-none" alt={label} />
         ) : (
-          <span className="text-gray-500 text-[10px] text-center">
+          <span className="text-gray-500 text-[10px] text-center pointer-events-none">
             <Plus size={14} className="mx-auto mb-1 opacity-50"/>{label}
           </span>
         )}
@@ -1283,6 +1330,7 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId }) {
     if (!isCloudMode || !user) return alert("请先连接云端！");
     const existingSns = computers.map(c => c.sn).filter(sn => sn && sn.startsWith('A'));
     const maxNum = Math.max(0, ...existingSns.map(sn => parseInt(sn.substring(1)) || 0));
+    // 创建时留足 8 个图片的空位
     await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'computers'), { sn: `A${String(maxNum + 1).padStart(2, '0')}`, cpu: '', gpu: '', ram: '', ssd: '', cost: 0, status: 'available', img1: '', img2: '', img3: '', img4: '', img5: '', img6: '', img7: '', img8: '' });
   };
 
@@ -1348,7 +1396,6 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId }) {
           </div>
 
           <div>
-             {/* 🌟 核心修改 2：扩充到 8 个附件，两排展示 */}
              <span className="text-gray-400 text-sm font-bold mb-3 md:mb-4 block">设备档案图 (点击上传) <span className="text-blue-500 text-xs font-normal ml-2">支持8图</span></span>
              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
                 {['img1', 'img2', 'img3', 'img4', 'img5', 'img6', 'img7', 'img8'].map((imgKey, i) => (
