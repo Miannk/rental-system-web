@@ -51,10 +51,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState("");
   const [activeTab, setActiveTab] = useState('rental'); 
-  
-  // --- 新增：客户智能排序状态 ---
   const [customerSort, setCustomerSort] = useState('最新');
-
   const [selectedCustomerId, setSelectedCustomerId] = useState(null);
   const [highlightedOrderId, setHighlightedOrderId] = useState(null);
 
@@ -184,7 +181,6 @@ export default function App() {
     };
   }, [processedOrders]);
 
-  // 列表数据过滤与【智能排序引擎】
   const sortedCustomerEntries = useMemo(() => {
     const map = {};
     const lowerQuery = searchQuery.toLowerCase().trim(); 
@@ -207,36 +203,49 @@ export default function App() {
       }
 
       const cid = o.customerId;
-      if (!map[cid]) map[cid] = { 
-          name: o.customerName, 
-          phone: o.phone, 
-          address: o.address, 
-          remark: o.remark, 
-          img1: o.img1, 
-          img2: o.img2, 
-          img3: o.img3, 
-          img4: o.img4, 
-          orders: [],
-          totalRev: 0,
-          minRemD: Infinity,
-          activeCount: 0
-      };
+      if (!map[cid]) {
+          map[cid] = { 
+              name: o.customerName, 
+              phone: o.phone, 
+              address: o.address, 
+              remark: o.remark, 
+              // 客户附件扩展到 10 个
+              img1: o.img1, img2: o.img2, img3: o.img3, img4: o.img4, img5: o.img5, 
+              img6: o.img6, img7: o.img7, img8: o.img8, img9: o.img9, img10: o.img10,
+              orders: [],
+              totalRev: 0,
+              totalPaid: 0,
+              minRemD: Infinity,
+              activeCount: 0
+          };
+      } else {
+          // 合并最新图片状态
+          if (o.img1) map[cid].img1 = o.img1;
+          if (o.img2) map[cid].img2 = o.img2;
+          if (o.img3) map[cid].img3 = o.img3;
+          if (o.img4) map[cid].img4 = o.img4;
+          if (o.img5) map[cid].img5 = o.img5;
+          if (o.img6) map[cid].img6 = o.img6;
+          if (o.img7) map[cid].img7 = o.img7;
+          if (o.img8) map[cid].img8 = o.img8;
+          if (o.img9) map[cid].img9 = o.img9;
+          if (o.img10) map[cid].img10 = o.img10;
+      }
       
       map[cid].orders.push(o);
       
-      // 为排序聚集数据
       if (isActive) {
          map[cid].activeCount++;
          if (o._remD < map[cid].minRemD) map[cid].minRemD = o._remD;
       }
       map[cid].totalRev += (o._dailyRate * Math.max(0, Math.min(o._el, o._totalDays)));
+      map[cid].totalPaid += Number(o.paidRent) || 0;
     });
 
     return Object.entries(map).sort((a, b) => {
       const dataA = a[1];
       const dataB = b[1];
 
-      // 应用智能排序规则
       if (customerSort === '收益最高') return dataB.totalRev - dataA.totalRev;
       if (customerSort === '最快到期') {
          const remA = dataA.minRemD === Infinity ? 99999 : dataA.minRemD;
@@ -245,7 +254,6 @@ export default function App() {
       }
       if (customerSort === '设备最多') return dataB.activeCount - dataA.activeCount;
 
-      // 默认：最新创建的在前
       const getSortTime = (cid, customerData) => {
         const createdAts = customerData.orders.map(o => o.createdAt).filter(v => v);
         if (createdAts.length > 0) return Math.min(...createdAts); 
@@ -307,7 +315,9 @@ export default function App() {
               days: Number(item.days) || 30, monthlyRent: Number(item.monthly_rent) || 0,
               paidRent: Number(item.paid_rent) || 0, renewMonths: Number(item.renew_months) || 0,
               status: item.status || 'active', isFullSet: item.is_full_set || '否',
-              img1: item.img1 || '', img2: item.img2 || '', img3: item.img3 || '', img4: item.img4 || '',
+              // 兼容导入 10 图
+              img1: item.img1 || '', img2: item.img2 || '', img3: item.img3 || '', img4: item.img4 || '', img5: item.img5 || '', 
+              img6: item.img6 || '', img7: item.img7 || '', img8: item.img8 || '', img9: item.img9 || '', img10: item.img10 || '',
               createdAt: Date.now() + timeOffset,
               logs: [{ time: Date.now(), msg: '✨ 历史订单包导入创建' }]
             };
@@ -321,7 +331,9 @@ export default function App() {
             const webComputer = {
               sn: item.sn || `A${Math.floor(Math.random()*1000)}`, cpu: item.cpu || '', gpu: item.gpu || '',
               ram: item.ram || '', ssd: item.ssd || '', cost: Number(item.cost) || 0, status: item.status || 'available',
-              img1: item.img1 || '', img2: item.img2 || '', img3: item.img3 || '', img4: item.img4 || ''
+              // 兼容设备导入 8 图
+              img1: item.img1 || '', img2: item.img2 || '', img3: item.img3 || '', img4: item.img4 || '', 
+              img5: item.img5 || '', img6: item.img6 || '', img7: item.img7 || '', img8: item.img8 || ''
             };
             await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'computers'), webComputer);
           }
@@ -339,14 +351,12 @@ export default function App() {
 
   // --- 4. 数据操作 ---
   
-  // 【一键极速续租功能】
   const handleQuickRenew = async (order) => {
     const oldRenew = Number(order.renewMonths) || 0;
     const newRenew = oldRenew + 1;
     const days = Number(order.days) || 30;
     const rent = Number(order.monthlyRent) || 0;
     
-    // 按已有逻辑运算新的已收金额
     const newPaid = days === 30 ? rent * (newRenew + 1) : rent;
 
     const confirmMsg = days === 30
@@ -377,7 +387,6 @@ export default function App() {
     const oldOrder = orders.find(o => o.id === id);
     
     let updates = { [field]: value };
-    // 自动计算逻辑并附加流水日志
     if (['days', 'monthlyRent', 'renewMonths'].includes(field)) {
       const newDays = field === 'days' ? (parseInt(value) || 0) : (parseInt(oldOrder.days) || 30);
       const newRent = field === 'monthlyRent' ? (parseFloat(value) || 0) : (parseFloat(oldOrder.monthlyRent) || 0);
@@ -421,30 +430,6 @@ export default function App() {
       }
     } else {
       setOrders(prev => prev.map(o => o.id === id ? { ...o, ...updates } : o));
-      if (field === 'computerSn') {
-        setComputers(prev => prev.map(c => {
-          if (oldOrder && c.sn === oldOrder.computerSn) {
-             const otherActive = processedOrders.some(o => o.computerSn === oldOrder.computerSn && o._effectiveStatus === 'active' && o.id !== id);
-             return {...c, status: otherActive ? 'rented' : 'available'};
-          }
-          if (c.sn === value && oldOrder.status === 'active') {
-             return {...c, status: 'rented'};
-          }
-          return c;
-        }));
-      } else if (field === 'status' && oldOrder && oldOrder.computerSn) {
-         setComputers(prev => prev.map(c => {
-            if (c.sn === oldOrder.computerSn) {
-               let newStatus = value === 'active' ? 'rented' : 'available';
-               if (newStatus === 'available') {
-                  const otherActive = processedOrders.some(o => o.computerSn === oldOrder.computerSn && o._effectiveStatus === 'active' && o.id !== id);
-                  if (otherActive) newStatus = 'rented';
-               }
-               return {...c, status: newStatus};
-            }
-            return c;
-         }));
-      }
     }
   };
 
@@ -464,7 +449,8 @@ export default function App() {
     const newOrder = {
       customerId: cid, customerName: '新客户', phone: '', address: '', remark: '',
       computerSn: '', startDate: new Date().toISOString().split('T')[0], days: 30, monthlyRent: 0, paidRent: 0, renewMonths: 0, status: 'active',
-      img1: '', img2: '', img3: '', img4: '',
+      // 初始化 10 张图片为空
+      img1: '', img2: '', img3: '', img4: '', img5: '', img6: '', img7: '', img8: '', img9: '', img10: '',
       createdAt: Date.now(),
       logs: [{ time: Date.now(), msg: '✨ 新建客户与初始订单档案' }]
     };
@@ -477,10 +463,17 @@ export default function App() {
   };
 
   const handleAddDevice = async (customerId, customerName, phone, address, remark) => {
+    // 获取该客户已有的图片并继承
+    const existingOrders = orders.filter(o => o.customerId === customerId);
+    const sourceOrder = existingOrders.find(o => o.img1 || o.img2 || o.img3 || o.img4 || o.img5 || o.img6 || o.img7 || o.img8 || o.img9 || o.img10) || {};
+
     const newOrder = {
       customerId, customerName, phone, address, remark: remark || '',
       computerSn: '', startDate: new Date().toISOString().split('T')[0], days: 30, monthlyRent: 0, paidRent: 0, renewMonths: 0, status: 'active',
-      img1: '', img2: '', img3: '', img4: '',
+      // 继承最多 10 张图片
+      img1: sourceOrder.img1 || '', img2: sourceOrder.img2 || '', img3: sourceOrder.img3 || '', 
+      img4: sourceOrder.img4 || '', img5: sourceOrder.img5 || '', img6: sourceOrder.img6 || '',
+      img7: sourceOrder.img7 || '', img8: sourceOrder.img8 || '', img9: sourceOrder.img9 || '', img10: sourceOrder.img10 || '',
       createdAt: Date.now(),
       logs: [{ time: Date.now(), msg: '✨ 新增挂载设备订单' }]
     };
@@ -506,12 +499,6 @@ export default function App() {
       }
     } else {
       setOrders(prev => prev.filter(o => o.id !== id));
-      if (orderToDelete && orderToDelete.computerSn && orderToDelete.status === 'active') {
-         const otherActive = processedOrders.some(o => o.computerSn === orderToDelete.computerSn && o._effectiveStatus === 'active' && o.id !== id);
-         if (!otherActive) {
-            setComputers(prev => prev.map(c => c.sn === orderToDelete.computerSn ? {...c, status:'available'} : c));
-         }
-      }
     }
   };
 
@@ -531,14 +518,6 @@ export default function App() {
       }
     } else {
       setOrders(prev => prev.filter(o => o.customerId !== customerId));
-      setComputers(prev => prev.map(c => {
-         const hasOtherActive = processedOrders.some(o => o.computerSn === c.sn && o._effectiveStatus === 'active' && o.customerId !== customerId);
-         const hadActiveInDeleted = customerOrders.some(o => o.computerSn === c.sn && o.status === 'active');
-         if (hadActiveInDeleted && !hasOtherActive) {
-            return {...c, status: 'available'};
-         }
-         return c;
-      }));
     }
     if (selectedCustomerId === customerId) setSelectedCustomerId(null);
   };
@@ -616,7 +595,7 @@ export default function App() {
                     <label className="flex-shrink-0 flex items-center justify-center space-x-2 bg-[#2b2d33] hover:bg-gray-700 text-white px-3 py-2 rounded-lg font-medium transition cursor-pointer border border-gray-700">
                       <input type="file" accept=".json" className="hidden" onChange={handleImportData} />
                       <Upload size={16} />
-                      <span className="text-sm">导入</span>
+                      <span className="text-sm">导入旧数据</span>
                     </label>
                     <button onClick={handleAddCustomer} className="flex-shrink-0 flex items-center justify-center space-x-2 bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded-lg font-medium transition shadow-lg shadow-blue-500/20">
                       <Plus size={18} />
@@ -642,7 +621,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* 永远展示全局所有订单的总计数据，不再受筛选条件变动！ */}
               <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-4">
                 <KpiCard title="总客户数" value={globalKpis.custs} />
                 <KpiCard title="在租设备" value={globalKpis.rented} />
@@ -651,7 +629,6 @@ export default function App() {
                 <KpiCard title="流水总额" value={`¥ ${globalKpis.flow}`} color="text-blue-400" className="col-span-2 lg:col-span-1" />
               </div>
 
-              {/* 智能排序列 */}
               <div className="flex justify-between items-center mb-6 bg-[#22252b] p-2 rounded-lg border border-gray-800">
                 <span className="text-gray-400 text-xs md:text-sm font-bold ml-2 shrink-0">智能排序挖掘:</span>
                 <div className="flex space-x-1.5 md:space-x-2 overflow-x-auto no-scrollbar">
@@ -707,8 +684,7 @@ function KpiCard({ title, value, color = "text-white", className = "" }) {
 }
 
 function CustomerCard({ cid, data, onSelect }) {
-  let activeCount = 0, overdueCount = 0, tDaily = 0, tAcc = 0;
-  
+  let activeCount = 0, overdueCount = 0, tDaily = 0, tAcc = 0, tPaid = 0;
   let fastestRemD = Infinity;
   let fastestRatio = 0;
 
@@ -729,6 +705,7 @@ function CustomerCard({ cid, data, onSelect }) {
         }
       }
       tAcc += o._dailyRate * Math.max(0, Math.min(o._el, o._totalDays));
+      tPaid += Number(o.paidRent) || 0;
     }
   });
 
@@ -756,8 +733,10 @@ function CustomerCard({ cid, data, onSelect }) {
             <div className="text-orange-500 font-bold text-sm">¥ {tDaily.toFixed(1)}</div>
          </div>
          <div className="text-right">
-            <div className="text-gray-500 text-[10px] mb-0.5">累计收益</div>
-            <div className="text-emerald-500 font-bold text-sm">¥ {tAcc.toFixed(1)}</div>
+            {/* 🌟 核心修改 3：去掉“累计收益”文案，直观展示 累计收益/流水总额 */}
+            <div className="text-emerald-500 font-bold text-sm md:text-base tracking-wide">
+               ¥ {tAcc.toFixed(1)} <span className="text-gray-500 text-[11px] font-normal tracking-normal ml-0.5">/ {tPaid.toFixed(1)}</span>
+            </div>
          </div>
       </div>
 
@@ -771,7 +750,7 @@ function CustomerCard({ cid, data, onSelect }) {
 }
 
 function CustomerDetailView({ cid, data, onBack, onUpdateCustomer, onAddDevice, onDeleteCustomer, onUpdateOrder, onDeleteOrder, onQuickRenew, highlightedOrderId, computers, orders }) {
-  let activeCount = 0, overdueCount = 0, tDaily = 0, tAcc = 0;
+  let activeCount = 0, overdueCount = 0, tDaily = 0, tAcc = 0, tPaid = 0;
 
   const sortedOrders = [...data.orders].sort((a, b) => {
     const timeA = a.createdAt || new Date(a.startDate || 0).getTime();
@@ -787,6 +766,7 @@ function CustomerDetailView({ cid, data, onBack, onUpdateCustomer, onAddDevice, 
         if (o._remD >= 0) tDaily += o._dailyRate; 
       }
       tAcc += o._dailyRate * Math.max(0, Math.min(o._el, o._totalDays));
+      tPaid += Number(o.paidRent) || 0;
     }
   });
 
@@ -836,22 +816,35 @@ function CustomerDetailView({ cid, data, onBack, onUpdateCustomer, onAddDevice, 
                <div className="w-px h-6 bg-gray-700 mx-1"></div>
                <div className="text-center px-1"><div className="text-gray-500 text-[10px] md:text-xs mb-1">日租</div><div className="text-orange-500 font-bold text-sm md:text-base">¥{tDaily.toFixed(1)}</div></div>
                <div className="w-px h-6 bg-gray-700 mx-1"></div>
-               <div className="text-center px-1"><div className="text-gray-500 text-[10px] md:text-xs mb-1">累计收益</div><div className="text-emerald-500 font-bold text-sm md:text-base">¥{tAcc.toFixed(1)}</div></div>
+               {/* 🌟 核心修改 3：同步修改详情页头的展示格式 */}
+               <div className="text-center px-1">
+                 <div className="text-gray-500 text-[10px] md:text-xs mb-1">&nbsp;</div>
+                 <div className="text-emerald-500 font-bold text-sm md:text-base tracking-wide">
+                    ¥{tAcc.toFixed(1)} <span className="text-gray-500 text-[11px] font-normal tracking-normal ml-0.5">/ {tPaid.toFixed(1)}</span>
+                 </div>
+               </div>
             </div>
           </div>
 
           <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-5 border-t border-[#333842] pt-4 mt-1">
-             <div className="w-full md:w-auto">
-                <span className="text-gray-400 text-xs md:text-sm font-bold mb-3 block">客户档案附件 (点击存入身份证/执照截图)</span>
-                <div className="grid grid-cols-4 gap-2 md:gap-3 w-full max-w-md">
+             <div className="w-full md:w-auto flex-1 pr-0 md:pr-4">
+                {/* 🌟 核心修改 1：扩充到 10 个附件，两行展示 */}
+                <span className="text-gray-400 text-xs md:text-sm font-bold mb-3 block">客户档案附件 (点击存入身份证/执照截图) <span className="text-blue-500 text-xs font-normal ml-2">支持10图</span></span>
+                <div className="grid grid-cols-3 md:grid-cols-5 gap-2 md:gap-3 w-full max-w-4xl">
                    <ImageUploadSlot label="附件1" image={data.img1} onUpload={(b) => onUpdateCustomer(cid, 'img1', b)} onRemove={() => onUpdateCustomer(cid, 'img1', '')} />
                    <ImageUploadSlot label="附件2" image={data.img2} onUpload={(b) => onUpdateCustomer(cid, 'img2', b)} onRemove={() => onUpdateCustomer(cid, 'img2', '')} />
                    <ImageUploadSlot label="附件3" image={data.img3} onUpload={(b) => onUpdateCustomer(cid, 'img3', b)} onRemove={() => onUpdateCustomer(cid, 'img3', '')} />
                    <ImageUploadSlot label="附件4" image={data.img4} onUpload={(b) => onUpdateCustomer(cid, 'img4', b)} onRemove={() => onUpdateCustomer(cid, 'img4', '')} />
+                   <ImageUploadSlot label="附件5" image={data.img5} onUpload={(b) => onUpdateCustomer(cid, 'img5', b)} onRemove={() => onUpdateCustomer(cid, 'img5', '')} />
+                   <ImageUploadSlot label="附件6" image={data.img6} onUpload={(b) => onUpdateCustomer(cid, 'img6', b)} onRemove={() => onUpdateCustomer(cid, 'img6', '')} />
+                   <ImageUploadSlot label="附件7" image={data.img7} onUpload={(b) => onUpdateCustomer(cid, 'img7', b)} onRemove={() => onUpdateCustomer(cid, 'img7', '')} />
+                   <ImageUploadSlot label="附件8" image={data.img8} onUpload={(b) => onUpdateCustomer(cid, 'img8', b)} onRemove={() => onUpdateCustomer(cid, 'img8', '')} />
+                   <ImageUploadSlot label="附件9" image={data.img9} onUpload={(b) => onUpdateCustomer(cid, 'img9', b)} onRemove={() => onUpdateCustomer(cid, 'img9', '')} />
+                   <ImageUploadSlot label="附件10" image={data.img10} onUpload={(b) => onUpdateCustomer(cid, 'img10', b)} onRemove={() => onUpdateCustomer(cid, 'img10', '')} />
                 </div>
              </div>
 
-             <div className="flex flex-col sm:flex-row w-full md:w-auto items-center gap-3">
+             <div className="flex flex-col sm:flex-row w-full md:w-auto items-center gap-3 shrink-0">
                 <button onClick={() => onAddDevice(cid, data.name, data.phone, data.address, data.remark)} className="w-full sm:w-auto flex justify-center items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-white font-bold transition shadow-lg">
                   <Plus size={18} /> 新增设备订单
                 </button>
@@ -912,7 +905,7 @@ function OrderRow({ order, onUpdate, onDelete, onQuickRenew, isHighlighted, comp
           <select value={order.renewMonths || 0} onChange={(e) => onUpdate(order.id, 'renewMonths', e.target.value)} className="w-full min-w-0 bg-black text-white py-1 rounded border border-gray-800 outline-none text-center px-0">
             {[0,1,2,3,4,5,6,7,8,9,10,12].map(n => <option key={n} value={n}>{n}</option>)}
           </select>
-          <button onClick={() => onQuickRenew(order)} className="bg-emerald-600/90 hover:bg-emerald-500 text-white rounded shadow-sm px-1.5 h-full flex items-center justify-center font-bold font-mono transition-transform active:scale-95" title="极速一键增加续租">+1</button>
+          <button onClick={() => onQuickRenew(order)} className="bg-emerald-600/90 hover:bg-emerald-500 text-white rounded shadow-sm px-1.5 h-full flex items-center justify-center font-bold font-mono transition-transform active:scale-95" title="极速一键增加续租">+</button>
         </div>
 
         <div className="col-span-2 px-1">
@@ -1130,7 +1123,6 @@ function CalendarTab({ orders }) {
   }
   if (monthsList.length === 0) monthsList.push(`${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`);
 
-  // --- 彻底恢复这里的动态渐变算法！---
   const maxRev = Math.max(...Object.values(monthlyRev), 0.01);
   const getColor = (amount) => {
     if (amount <= 0) return "#2b2b2b";
@@ -1291,10 +1283,12 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId }) {
     if (!isCloudMode || !user) return alert("请先连接云端！");
     const existingSns = computers.map(c => c.sn).filter(sn => sn && sn.startsWith('A'));
     const maxNum = Math.max(0, ...existingSns.map(sn => parseInt(sn.substring(1)) || 0));
-    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'computers'), { sn: `A${String(maxNum + 1).padStart(2, '0')}`, cpu: '', gpu: '', ram: '', ssd: '', cost: 0, status: 'available', img1: '', img2: '', img3: '', img4: '' });
+    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'computers'), { sn: `A${String(maxNum + 1).padStart(2, '0')}`, cpu: '', gpu: '', ram: '', ssd: '', cost: 0, status: 'available', img1: '', img2: '', img3: '', img4: '', img5: '', img6: '', img7: '', img8: '' });
   };
 
-  const handleUpdateComputer = async (id, field, value) => { if (isCloudMode && user) await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'computers', id), { [field]: value }, { merge: true }); };
+  const handleUpdateComputer = async (id, field, value) => { 
+      if (isCloudMode && user) await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'computers', id), { [field]: value }, { merge: true }); 
+  };
 
   const handleDeleteComputer = async (id, sn) => { 
     if (window.confirm(`确定删除设备 ${sn} 吗？`) && isCloudMode && user) {
@@ -1354,9 +1348,10 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId }) {
           </div>
 
           <div>
-             <span className="text-gray-400 text-sm font-bold mb-3 md:mb-4 block">设备档案图 (点击上传)</span>
+             {/* 🌟 核心修改 2：扩充到 8 个附件，两排展示 */}
+             <span className="text-gray-400 text-sm font-bold mb-3 md:mb-4 block">设备档案图 (点击上传) <span className="text-blue-500 text-xs font-normal ml-2">支持8图</span></span>
              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
-                {['img1', 'img2', 'img3', 'img4'].map((imgKey, i) => (
+                {['img1', 'img2', 'img3', 'img4', 'img5', 'img6', 'img7', 'img8'].map((imgKey, i) => (
                    <ImageUploadSlot 
                      key={imgKey} 
                      label={`外观${i+1}`} 
