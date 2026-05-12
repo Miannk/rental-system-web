@@ -210,7 +210,6 @@ export default function App() {
               phone: o.phone, 
               address: o.address, 
               remark: o.remark, 
-              // 客户附件扩展到 10 个
               img1: o.img1, img2: o.img2, img3: o.img3, img4: o.img4, img5: o.img5, 
               img6: o.img6, img7: o.img7, img8: o.img8, img9: o.img9, img10: o.img10,
               orders: [],
@@ -220,7 +219,6 @@ export default function App() {
               activeCount: 0
           };
       } else {
-          // 合并最新图片状态
           if (o.img1) map[cid].img1 = o.img1;
           if (o.img2) map[cid].img2 = o.img2;
           if (o.img3) map[cid].img3 = o.img3;
@@ -255,7 +253,6 @@ export default function App() {
       }
       if (customerSort === '设备最多') return dataB.activeCount - dataA.activeCount;
 
-      // 默认：最新创建的在前
       const getSortTime = (cid, customerData) => {
         const createdAts = customerData.orders.map(o => o.createdAt).filter(v => v);
         if (createdAts.length > 0) return Math.min(...createdAts); 
@@ -317,7 +314,6 @@ export default function App() {
               days: Number(item.days) || 30, monthlyRent: Number(item.monthly_rent) || 0,
               paidRent: Number(item.paid_rent) || 0, renewMonths: Number(item.renew_months) || 0,
               status: item.status || 'active', isFullSet: item.is_full_set || '否',
-              // 兼容导入 10 图
               img1: item.img1 || '', img2: item.img2 || '', img3: item.img3 || '', img4: item.img4 || '', img5: item.img5 || '', 
               img6: item.img6 || '', img7: item.img7 || '', img8: item.img8 || '', img9: item.img9 || '', img10: item.img10 || '',
               createdAt: Date.now() + timeOffset,
@@ -333,7 +329,6 @@ export default function App() {
             const webComputer = {
               sn: item.sn || `A${Math.floor(Math.random()*1000)}`, cpu: item.cpu || '', gpu: item.gpu || '',
               ram: item.ram || '', ssd: item.ssd || '', cost: Number(item.cost) || 0, status: item.status || 'available',
-              // 兼容设备导入 8 图
               img1: item.img1 || '', img2: item.img2 || '', img3: item.img3 || '', img4: item.img4 || '', 
               img5: item.img5 || '', img6: item.img6 || '', img7: item.img7 || '', img8: item.img8 || ''
             };
@@ -351,8 +346,6 @@ export default function App() {
     event.target.value = '';
   };
 
-  // --- 4. 数据操作 ---
-  
   const handleQuickRenew = async (order) => {
     const oldRenew = Number(order.renewMonths) || 0;
     const newRenew = oldRenew + 1;
@@ -475,7 +468,6 @@ export default function App() {
     const newOrder = {
       customerId: cid, customerName: '新客户', phone: '', address: '', remark: '',
       computerSn: '', startDate: new Date().toISOString().split('T')[0], days: 30, monthlyRent: 0, paidRent: 0, renewMonths: 0, status: 'active',
-      // 初始化 10 张图片为空
       img1: '', img2: '', img3: '', img4: '', img5: '', img6: '', img7: '', img8: '', img9: '', img10: '',
       createdAt: Date.now(),
       logs: [{ time: Date.now(), msg: '✨ 新建客户与初始订单档案' }]
@@ -489,14 +481,12 @@ export default function App() {
   };
 
   const handleAddDevice = async (customerId, customerName, phone, address, remark) => {
-    // 获取该客户已有的图片并继承
     const existingOrders = orders.filter(o => o.customerId === customerId);
     const sourceOrder = existingOrders.find(o => o.img1 || o.img2 || o.img3 || o.img4 || o.img5 || o.img6 || o.img7 || o.img8 || o.img9 || o.img10) || {};
 
     const newOrder = {
       customerId, customerName, phone, address, remark: remark || '',
       computerSn: '', startDate: new Date().toISOString().split('T')[0], days: 30, monthlyRent: 0, paidRent: 0, renewMonths: 0, status: 'active',
-      // 继承最多 10 张图片
       img1: sourceOrder.img1 || '', img2: sourceOrder.img2 || '', img3: sourceOrder.img3 || '', 
       img4: sourceOrder.img4 || '', img5: sourceOrder.img5 || '', img6: sourceOrder.img6 || '',
       img7: sourceOrder.img7 || '', img8: sourceOrder.img8 || '', img9: sourceOrder.img9 || '', img10: sourceOrder.img10 || '',
@@ -703,7 +693,7 @@ export default function App() {
         ) : null}
       </div>
 
-      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-[#1a1c20] border-t border-gray-800 flex justify-around items-center z-[99999] h-16 pb-safe shadow-[0_-4px_15px_rgba(0,0,0,0.8)]">
+      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-[#1a1c20] border-t border-gray-800 flex justify-around items-center z-[999999] h-16 pb-safe shadow-[0_-4px_15px_rgba(0,0,0,0.8)]">
         {navTabs.map(tab => (
           <button key={tab.id} onClick={() => { setActiveTab(tab.id); setSelectedCustomerId(null); }} className={`flex flex-col items-center justify-center w-full h-full ${activeTab === tab.id ? 'text-blue-400' : 'text-gray-500'}`}>
             <span className={`text-xl mb-1 ${activeTab === tab.id ? 'scale-110' : ''} transition-transform`}>{tab.icon}</span>
@@ -761,10 +751,10 @@ function CustomerCard({ cid, data, onSelect }) {
   });
 
   const statusTag = overdueCount > 0 
-    ? <div className="text-[10px] font-bold px-2 py-1 rounded shrink-0 bg-red-500/20 text-red-400">超期 {overdueCount}</div>
+    ? <div className="text-[10px] font-bold px-2 py-1 rounded shrink-0 bg-red-500/20 text-red-400 whitespace-nowrap">超期 {overdueCount}</div>
     : activeCount > 0 
-      ? <div className="text-[10px] font-bold px-2 py-1 rounded shrink-0 bg-blue-500/20 text-blue-400">在租 {activeCount}</div>
-      : <div className="text-[10px] font-bold px-2 py-1 rounded shrink-0 bg-gray-700 text-gray-400">空闲</div>;
+      ? <div className="text-[10px] font-bold px-2 py-1 rounded shrink-0 bg-blue-500/20 text-blue-400 whitespace-nowrap">在租 {activeCount}</div>
+      : <div className="text-[10px] font-bold px-2 py-1 rounded shrink-0 bg-gray-700 text-gray-400 whitespace-nowrap">空闲</div>;
 
   const barColor = fastestRemD < 3 ? "bg-red-500" : "bg-emerald-500";
 
@@ -779,14 +769,14 @@ function CustomerCard({ cid, data, onSelect }) {
       </div>
       
       <div className="flex justify-between items-end border-t border-[#333] pt-2 mb-2">
-         <div>
-            <div className="text-gray-500 text-[10px] mb-0.5">日租</div>
-            <div className="text-orange-500 font-bold text-sm">¥ {tDaily.toFixed(1)}</div>
+         <div className="flex-shrink-0">
+            <div className="text-gray-500 text-[10px] mb-0.5 whitespace-nowrap">日租</div>
+            <div className="text-orange-500 font-bold text-xs sm:text-sm whitespace-nowrap">¥{tDaily.toFixed(1)}</div>
          </div>
-         <div className="text-right">
-            <div className="text-gray-500 text-[10px] mb-0.5">累计收益 / 已收</div>
-            <div className="text-emerald-500 font-bold text-sm md:text-base tracking-wide">
-               ¥ {tAcc.toFixed(1)} <span className="text-gray-500 text-[11px] font-normal tracking-normal ml-0.5">/ {tPaid.toFixed(1)}</span>
+         <div className="text-right flex-shrink-0 ml-2">
+            <div className="text-gray-500 text-[10px] mb-0.5 whitespace-nowrap overflow-hidden text-ellipsis">累计收益 / 已收</div>
+            <div className="text-emerald-500 font-bold text-xs sm:text-sm tracking-tight whitespace-nowrap">
+               ¥{tAcc.toFixed(1)} <span className="text-gray-500 text-[10px] sm:text-[11px] font-normal tracking-normal ml-0.5">/{tPaid.toFixed(1)}</span>
             </div>
          </div>
       </div>
@@ -870,15 +860,15 @@ function CustomerDetailView({ cid, data, onBack, onUpdateCustomer, onAddDevice, 
                </div>
             </div>
             
-            <div className="flex items-center justify-between sm:justify-start gap-4 bg-[#1a1c20] p-3 rounded-lg shrink-0">
-               <div className="text-center px-1"><div className="text-gray-500 text-[10px] md:text-xs mb-1">在租/超期</div><div className="text-blue-400 font-bold text-sm md:text-base">{activeCount} <span className="text-xs text-gray-500">/</span> {overdueCount > 0 ? <span className="text-red-500">{overdueCount}</span> : <span className="text-gray-500">0</span>}</div></div>
-               <div className="w-px h-6 bg-gray-700 mx-1"></div>
-               <div className="text-center px-1"><div className="text-gray-500 text-[10px] md:text-xs mb-1">日租</div><div className="text-orange-500 font-bold text-sm md:text-base">¥{tDaily.toFixed(1)}</div></div>
-               <div className="w-px h-6 bg-gray-700 mx-1"></div>
-               <div className="text-center px-1">
-                 <div className="text-gray-500 text-[10px] md:text-xs mb-1">累计收益 / 已收</div>
-                 <div className="text-emerald-500 font-bold text-sm md:text-base tracking-wide">
-                    ¥{tAcc.toFixed(1)} <span className="text-gray-500 text-[11px] font-normal tracking-normal ml-0.5">/ {tPaid.toFixed(1)}</span>
+            <div className="flex items-center justify-between sm:justify-start gap-2 sm:gap-4 bg-[#1a1c20] p-3 rounded-lg shrink-0 overflow-x-auto no-scrollbar">
+               <div className="text-center px-1 flex-shrink-0"><div className="text-gray-500 text-[10px] md:text-xs mb-1 whitespace-nowrap">在租/超期</div><div className="text-blue-400 font-bold text-xs sm:text-sm md:text-base whitespace-nowrap">{activeCount} <span className="text-[10px] sm:text-xs text-gray-500">/</span> {overdueCount > 0 ? <span className="text-red-500">{overdueCount}</span> : <span className="text-gray-500">0</span>}</div></div>
+               <div className="w-px h-6 bg-gray-700 mx-1 flex-shrink-0"></div>
+               <div className="text-center px-1 flex-shrink-0"><div className="text-gray-500 text-[10px] md:text-xs mb-1 whitespace-nowrap">日租</div><div className="text-orange-500 font-bold text-xs sm:text-sm md:text-base whitespace-nowrap">¥{tDaily.toFixed(1)}</div></div>
+               <div className="w-px h-6 bg-gray-700 mx-1 flex-shrink-0"></div>
+               <div className="text-center px-1 flex-shrink-0">
+                 <div className="text-gray-500 text-[10px] md:text-xs mb-1 whitespace-nowrap overflow-hidden text-ellipsis">累计收益 / 已收</div>
+                 <div className="text-emerald-500 font-bold text-xs sm:text-sm md:text-base tracking-tight whitespace-nowrap">
+                    ¥{tAcc.toFixed(1)} <span className="text-gray-500 text-[10px] sm:text-[11px] font-normal tracking-normal ml-0.5">/{tPaid.toFixed(1)}</span>
                  </div>
                </div>
             </div>
@@ -886,7 +876,6 @@ function CustomerDetailView({ cid, data, onBack, onUpdateCustomer, onAddDevice, 
 
           <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-5 border-t border-[#333842] pt-4 mt-1">
              <div className="w-full md:w-auto flex-1 pr-0 md:pr-4">
-                {/* 🌟 核心修改 1：扩充到 10 个附件，两行展示 */}
                 <span className="text-gray-400 text-xs md:text-sm font-bold mb-3 block">客户档案附件 (点击存入身份证/执照截图) <span className="text-blue-500 text-xs font-normal ml-2">支持10图</span></span>
                 <div className="grid grid-cols-3 md:grid-cols-5 gap-2 md:gap-3 w-full max-w-4xl">
                    <ImageUploadSlot label="附件1" image={data.img1} onUpload={(b) => onUpdateCustomer(cid, 'img1', b)} onRemove={() => onUpdateCustomer(cid, 'img1', '')} onPreview={onPreviewImage} />
@@ -936,7 +925,7 @@ function OrderRow({ order, onUpdate, onDelete, onQuickRenew, isHighlighted, comp
   const effectiveDailyRate = (isActive && order._remD >= 0) ? order._dailyRate : 0;
 
   return (
-    <div className="flex flex-col">
+    <div className="flex flex-col mt-1">
       <div id={`order-${order.id}`} className={`grid grid-cols-12 gap-2 items-center px-2 py-1.5 rounded border text-xs transition-all duration-500 ease-in-out ${isHighlighted ? 'bg-blue-900/60 border-blue-400 scale-[1.01] shadow-[0_0_15px_rgba(59,130,246,0.4)] z-10 relative' : 'bg-[#1c1c1c] hover:bg-[#252525] border-[#333]'}`}>
         <div className="col-span-2 flex items-center space-x-2">
           <div className={`w-1 h-3 rounded-full ${!isActive ? 'bg-gray-600' : (order._remD < 0 ? 'bg-red-500' : 'bg-emerald-500')}`}></div>
@@ -1517,7 +1506,7 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId, onPrevi
                  <div className="flex justify-end items-end text-[10px] mb-1 px-0.5">
                     <span className="text-gray-500 scale-90 origin-right"><span className={machineEarned >= costVal ? "text-emerald-500" : "text-red-500"}>{machineEarned.toFixed(0)}</span> / {costVal.toFixed(0)}</span>
                  </div>
-                 <div className="w-full bg-black/40 h-1.5 rounded-full overflow-hidden">
+                 <div className="w-full bg-gray-800 h-1 rounded-full overflow-hidden">
                    <div className={`h-full ${machineEarned >= costVal ? 'bg-emerald-500' : 'bg-red-500'}`} style={{ width: `${Math.min((machineEarned / (costVal || 1)) * 100, 100)}%` }}></div>
                  </div>
                </div>
