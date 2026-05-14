@@ -330,7 +330,8 @@ export default function App() {
               sn: item.sn || `A${Math.floor(Math.random()*1000)}`, cpu: item.cpu || '', gpu: item.gpu || '',
               ram: item.ram || '', ssd: item.ssd || '', cost: Number(item.cost) || 0, status: item.status || 'available',
               img1: item.img1 || '', img2: item.img2 || '', img3: item.img3 || '', img4: item.img4 || '', 
-              img5: item.img5 || '', img6: item.img6 || '', img7: item.img7 || '', img8: item.img8 || ''
+              img5: item.img5 || '', img6: item.img6 || '', img7: item.img7 || '', img8: item.img8 || '',
+              purchaseDate: item.purchaseDate || new Date().toISOString().split('T')[0]
             };
             await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'computers'), webComputer);
           }
@@ -685,7 +686,7 @@ export default function App() {
             </>
           )
         ) : activeTab === 'home' ? (
-          <HomeTab orders={processedOrders} onJump={(id) => { setHighlightedOrderId(id); setActiveTab('rental'); }} />
+          <HomeTab orders={processedOrders} onJump={(id) => { setHighlightedOrderId(id); setActiveTab('rental'); }} onQuickRenew={handleQuickRenew} />
         ) : activeTab === 'equipment' ? (
           <EquipmentTab computers={computers} orders={processedOrders} isCloudMode={isCloudMode} user={user} db={db} appId={appId} onPreviewImage={setPreviewImage} />
         ) : activeTab === 'calendar' ? (
@@ -1008,7 +1009,7 @@ function OrderRow({ order, onUpdate, onDelete, onQuickRenew, isHighlighted, comp
   );
 }
 
-function HomeTab({ orders, onJump }) {
+function HomeTab({ orders, onJump, onQuickRenew }) {
   const expiringGroups = {};
   orders.forEach(o => {
     if (o._effectiveStatus !== 'active' || !o.computerSn) return;
@@ -1016,7 +1017,7 @@ function HomeTab({ orders, onJump }) {
     if (o._remD >= 0 && o._remD <= 3) {
       if (!expiringGroups[o.customerId]) expiringGroups[o.customerId] = { cust: o.customerName, phone: o.phone, minRem: o._remD, devices: [] };
       if (o._remD < expiringGroups[o.customerId].minRem) expiringGroups[o.customerId].minRem = o._remD;
-      expiringGroups[o.customerId].devices.push({ id: o.id, sn: o.computerSn, remD: o._remD, expireStr: o._expireStr });
+      expiringGroups[o.customerId].devices.push({ id: o.id, sn: o.computerSn, remD: o._remD, expireStr: o._expireStr, order: o });
     }
   });
 
@@ -1043,10 +1044,13 @@ function HomeTab({ orders, onJump }) {
                   <span className="text-gray-400 w-12 pt-1">编号:</span>
                   <div className="flex-1 flex flex-col space-y-1.5">
                     {t.devices.map((d, di) => (
-                      <div key={di} className="flex items-center bg-[#1f1f1f] px-2 py-1.5 rounded border border-gray-800">
+                      <div key={di} className="flex items-center justify-between bg-[#1f1f1f] px-2 py-1.5 rounded border border-gray-800">
                         <span className={`font-bold ${d.remD === 0 ? 'text-orange-400' : 'text-blue-400'}`}>
                           {d.sn} (剩{d.remD}天)
                         </span>
+                        <button onClick={(e) => { e.stopPropagation(); onQuickRenew(d.order); }} className="bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] px-2 py-1 rounded shadow-sm transition active:scale-95 font-bold">
+                          续租+1
+                        </button>
                       </div>
                     ))}
                   </div>
@@ -1338,8 +1342,8 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId, onPrevi
     if (!isCloudMode || !user) return alert("请先连接云端！");
     const existingSns = computers.map(c => c.sn).filter(sn => sn && sn.startsWith('A'));
     const maxNum = Math.max(0, ...existingSns.map(sn => parseInt(sn.substring(1)) || 0));
-    // 创建时留足 8 个图片的空位
-    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'computers'), { sn: `A${String(maxNum + 1).padStart(2, '0')}`, cpu: '', gpu: '', ram: '', ssd: '', cost: 0, status: 'available', img1: '', img2: '', img3: '', img4: '', img5: '', img6: '', img7: '', img8: '' });
+    // 创建时加入 purchaseDate 默认值
+    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'computers'), { sn: `A${String(maxNum + 1).padStart(2, '0')}`, cpu: '', gpu: '', ram: '', ssd: '', cost: 0, status: 'available', img1: '', img2: '', img3: '', img4: '', img5: '', img6: '', img7: '', img8: '', purchaseDate: new Date().toISOString().split('T')[0] });
   };
 
   const handleUpdateComputer = async (id, field, value) => { 
@@ -1362,6 +1366,16 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId, onPrevi
   });
 
   const selectedComp = useMemo(() => computers.find(c => c.id === selectedId), [computers, selectedId]);
+
+  // 提取该设备的历史订单信息，按照创建时间或起租时间降序排列
+  const deviceOrders = useMemo(() => {
+    if (!selectedComp) return [];
+    return [...orders].filter(o => o.computerSn === selectedComp.sn).sort((a, b) => {
+       const timeA = a.createdAt || new Date(a.startDate || 0).getTime();
+       const timeB = b.createdAt || new Date(b.startDate || 0).getTime();
+       return timeB - timeA;
+    });
+  }, [orders, selectedComp]);
 
   if (selectedComp) {
     const c = selectedComp;
@@ -1396,15 +1410,16 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId, onPrevi
           </div>
 
           <div className="bg-[#1a1c20] p-4 md:p-6 rounded-lg grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4 text-sm">
-            <div className="flex items-center gap-3"><span className="text-gray-500 w-10 shrink-0">CPU</span><input type="text" value={c.cpu || ''} onChange={e=>handleUpdateComputer(c.id, 'cpu', e.target.value)} className="flex-1 min-w-0 bg-[#2b2d33] text-white px-3 py-2 rounded outline-none" /></div>
-            <div className="flex items-center gap-3"><span className="text-gray-500 w-10 shrink-0">显卡</span><input type="text" value={c.gpu || ''} onChange={e=>handleUpdateComputer(c.id, 'gpu', e.target.value)} className="flex-1 min-w-0 bg-[#2b2d33] text-white px-3 py-2 rounded outline-none" /></div>
-            <div className="flex items-center gap-3"><span className="text-gray-500 w-10 shrink-0">内存</span><input type="text" value={c.ram || ''} onChange={e=>handleUpdateComputer(c.id, 'ram', e.target.value)} className="flex-1 min-w-0 bg-[#2b2d33] text-white px-3 py-2 rounded outline-none" /></div>
-            <div className="flex items-center gap-3"><span className="text-gray-500 w-10 shrink-0">固态</span><input type="text" value={c.ssd || ''} onChange={e=>handleUpdateComputer(c.id, 'ssd', e.target.value)} className="flex-1 min-w-0 bg-[#2b2d33] text-white px-3 py-2 rounded outline-none" /></div>
-            <div className="col-span-1 md:col-span-2 mt-2 md:mt-4 pt-4 border-t border-[#333] flex items-center gap-3"><span className="text-gray-400 font-bold shrink-0">成本</span><input type="number" value={c.cost || ''} onChange={e=>handleUpdateComputer(c.id, 'cost', e.target.value)} className="flex-1 min-w-0 bg-[#2b2d33] text-blue-400 font-bold px-3 py-2 rounded outline-none" /></div>
+            <div className="flex items-center gap-2 md:gap-3"><span className="text-gray-500 w-14 shrink-0 text-xs md:text-sm">CPU</span><input type="text" value={c.cpu || ''} onChange={e=>handleUpdateComputer(c.id, 'cpu', e.target.value)} className="flex-1 min-w-0 bg-[#2b2d33] text-white px-2 py-1.5 md:px-3 md:py-2 rounded outline-none text-xs md:text-sm" /></div>
+            <div className="flex items-center gap-2 md:gap-3"><span className="text-gray-500 w-14 shrink-0 text-xs md:text-sm">显卡</span><input type="text" value={c.gpu || ''} onChange={e=>handleUpdateComputer(c.id, 'gpu', e.target.value)} className="flex-1 min-w-0 bg-[#2b2d33] text-white px-2 py-1.5 md:px-3 md:py-2 rounded outline-none text-xs md:text-sm" /></div>
+            <div className="flex items-center gap-2 md:gap-3"><span className="text-gray-500 w-14 shrink-0 text-xs md:text-sm">内存</span><input type="text" value={c.ram || ''} onChange={e=>handleUpdateComputer(c.id, 'ram', e.target.value)} className="flex-1 min-w-0 bg-[#2b2d33] text-white px-2 py-1.5 md:px-3 md:py-2 rounded outline-none text-xs md:text-sm" /></div>
+            <div className="flex items-center gap-2 md:gap-3"><span className="text-gray-500 w-14 shrink-0 text-xs md:text-sm">固态</span><input type="text" value={c.ssd || ''} onChange={e=>handleUpdateComputer(c.id, 'ssd', e.target.value)} className="flex-1 min-w-0 bg-[#2b2d33] text-white px-2 py-1.5 md:px-3 md:py-2 rounded outline-none text-xs md:text-sm" /></div>
+            
+            <div className="flex items-center gap-2 md:gap-3"><span className="text-gray-500 w-14 shrink-0 text-xs md:text-sm">采购时间</span><input type="date" value={c.purchaseDate || ''} onChange={e=>handleUpdateComputer(c.id, 'purchaseDate', e.target.value)} className="flex-1 min-w-0 bg-[#2b2d33] text-white px-2 py-1.5 md:px-3 md:py-2 rounded outline-none text-xs md:text-sm" /></div>
+            <div className="flex items-center gap-2 md:gap-3"><span className="text-gray-400 font-bold shrink-0 w-14 text-xs md:text-sm">成本</span><input type="number" value={c.cost || ''} onChange={e=>handleUpdateComputer(c.id, 'cost', e.target.value)} className="flex-1 min-w-0 bg-[#2b2d33] text-blue-400 font-bold px-2 py-1.5 md:px-3 md:py-2 rounded outline-none text-xs md:text-sm" /></div>
           </div>
 
           <div>
-             {/* 🌟 核心修改 2：扩充到 8 个附件，两排展示 */}
              <span className="text-gray-400 text-sm font-bold mb-3 md:mb-4 block">设备档案图 (点击上传) <span className="text-blue-500 text-xs font-normal ml-2">支持8图</span></span>
              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
                 {['img1', 'img2', 'img3', 'img4', 'img5', 'img6', 'img7', 'img8'].map((imgKey, i) => (
@@ -1428,6 +1443,46 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId, onPrevi
              <button onClick={() => handleDeleteComputer(c.id, c.sn)} className="w-full sm:w-auto flex justify-center items-center gap-2 px-4 py-2 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-lg transition font-bold border border-red-500/30">
                 <Trash2 size={16} /> 删除该机
              </button>
+          </div>
+
+          {/* 🌟 新增：设备历史租赁信息面板 */}
+          <div className="mt-6 md:mt-8">
+             <span className="text-gray-400 text-sm font-bold mb-3 block">历史租赁记录</span>
+             <div className="bg-[#1a1c20] rounded-lg border border-gray-700 overflow-x-auto">
+               {deviceOrders.length === 0 ? (
+                 <div className="text-center text-gray-500 py-6 text-sm">暂无租赁流转记录</div>
+               ) : (
+                 <table className="w-full text-left text-xs md:text-sm text-gray-300 whitespace-nowrap">
+                   <thead className="bg-[#22252b] text-gray-400">
+                     <tr>
+                       <th className="px-4 py-3 font-medium border-b border-gray-700">客户姓名</th>
+                       <th className="px-4 py-3 font-medium border-b border-gray-700">起租时间</th>
+                       <th className="px-4 py-3 font-medium border-b border-gray-700 text-center">租赁天数/周期</th>
+                       <th className="px-4 py-3 font-medium border-b border-gray-700 text-right">已收总额</th>
+                       <th className="px-4 py-3 font-medium border-b border-gray-700 text-center">状态</th>
+                     </tr>
+                   </thead>
+                   <tbody className="divide-y divide-gray-800/50">
+                     {deviceOrders.map(o => (
+                       <tr key={o.id} className="hover:bg-gray-800/50 transition-colors">
+                         <td className="px-4 py-3">{o.customerName || '-'}</td>
+                         <td className="px-4 py-3 font-mono">{o.startDate || '-'}</td>
+                         <td className="px-4 py-3 text-center">
+                           <span className="text-gray-400">{Number(o.days) || 30}天</span>
+                           {(Number(o.renewMonths) || 0) > 0 && <span className="text-emerald-500 ml-1">×{(Number(o.renewMonths)||0)+1}</span>}
+                         </td>
+                         <td className="px-4 py-3 text-right text-emerald-400 font-bold tracking-wider">¥{o.paidRent || 0}</td>
+                         <td className="px-4 py-3 text-center">
+                           <span className={`px-2.5 py-1 rounded-md text-[10px] font-bold ${o._effectiveStatus === 'active' ? 'bg-blue-500/20 text-blue-400' : 'bg-gray-700 text-gray-400'}`}>
+                             {o._effectiveStatus === 'active' ? '在租中' : '已归档'}
+                           </span>
+                         </td>
+                       </tr>
+                     ))}
+                   </tbody>
+                 </table>
+               )}
+             </div>
           </div>
         </div>
       </div>
