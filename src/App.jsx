@@ -1035,7 +1035,13 @@ function HomeTab({ orders, onJump, onQuickRenew }) {
                 <span className={`font-bold text-lg text-orange-500`}>
                   {t.minRem === 0 ? '⚠️ 今天到期' : `⚠️ 最快剩 ${t.minRem} 天到期`}
                 </span>
-                <span className="text-gray-400 text-sm">共 {t.devices.length} 台</span>
+                <div className="flex items-center gap-3">
+                  <span className="text-gray-400 text-sm">共 {t.devices.length} 台</span>
+                  {/* 🌟 修改点：将原来浮在右下角可能遮挡其他内容的“定位/搜索”按钮移至此处标题栏右上角 */}
+                  <button onClick={() => onJump(t.devices[0].id)} className="text-gray-400 hover:text-white transition-all bg-black/40 hover:bg-blue-600 p-1.5 rounded-full shadow-sm hover:scale-110" title="定位查看订单详情">
+                    <Search size={14} />
+                  </button>
+                </div>
               </div>
               <div className="space-y-2 text-sm">
                 <div className="flex"><span className="text-gray-400 w-12">客户:</span><span className="font-bold text-white">{t.cust || '-'}</span></div>
@@ -1046,7 +1052,7 @@ function HomeTab({ orders, onJump, onQuickRenew }) {
                     {t.devices.map((d, di) => (
                       <div key={di} className="flex items-center justify-between bg-[#1f1f1f] px-2 py-1.5 rounded border border-gray-800">
                         <span className={`font-bold ${d.remD === 0 ? 'text-orange-400' : 'text-blue-400'}`}>
-                          {d.sn} (剩{d.remD}天)
+                          {d.sn} <span className="text-[10px] text-gray-500 font-normal ml-1">(剩{d.remD}天)</span>
                         </span>
                         <button onClick={(e) => { e.stopPropagation(); onQuickRenew(d.order); }} className="bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] px-2 py-1 rounded shadow-sm transition active:scale-95 font-bold">
                           续租+1
@@ -1056,9 +1062,6 @@ function HomeTab({ orders, onJump, onQuickRenew }) {
                   </div>
                 </div>
               </div>
-              <button onClick={() => onJump(t.devices[0].id)} className="absolute bottom-4 right-4 text-white/30 group-hover:text-white transition-all bg-black/20 group-hover:bg-blue-600 p-2 rounded-full shadow-sm hover:scale-110">
-                <Search size={16} />
-              </button>
             </div>
           ))}
         </div>
