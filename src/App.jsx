@@ -329,6 +329,9 @@ export default function App() {
             const webComputer = {
               sn: item.sn || `A${Math.floor(Math.random()*1000)}`, cpu: item.cpu || '', gpu: item.gpu || '',
               ram: item.ram || '', ssd: item.ssd || '', cost: Number(item.cost) || 0, status: item.status || 'available',
+              isSold: item.isSold === true || item.is_sold === true,
+              salePrice: Number(item.salePrice ?? item.sale_price) || 0,
+              isLost: item.isLost === true || item.is_lost === true,
               img1: item.img1 || '', img2: item.img2 || '', img3: item.img3 || '', img4: item.img4 || '', 
               img5: item.img5 || '', img6: item.img6 || '', img7: item.img7 || '', img8: item.img8 || '',
               purchaseDate: item.purchaseDate || new Date().toISOString().split('T')[0]
@@ -938,9 +941,10 @@ function OrderRow({ order, onUpdate, onDelete, onQuickRenew, isHighlighted, comp
           <option value="">- 请选择 -</option>
           {computers && [...computers].sort((a,b) => (a.sn||"").localeCompare(b.sn||"", undefined, {numeric:true})).map(c => {
             const isOccupied = orders && orders.some(o => o._effectiveStatus === 'active' && o.computerSn === c.sn && o.id !== order.id);
+            const isDisposed = c.isSold === true || c.isLost === true;
             return (
-              <option key={c.id || c.sn} value={c.sn}>
-                {c.sn} {isOccupied ? '(使用中)' : ''}
+              <option key={c.id || c.sn} value={c.sn} disabled={isDisposed && c.sn !== order.computerSn}>
+                {c.sn} {c.isLost ? '(已丢失)' : c.isSold ? '(已售出)' : isOccupied ? '(使用中)' : ''}
               </option>
             );
           })}
@@ -1339,18 +1343,33 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId, onPrevi
   const [selectedId, setSelectedId] = useState(null);
   const [compFilter, setCompFilter] = useState('全部');
 
-  const getIsRented = (sn) => orders.some(o => o.computerSn === sn && o._effectiveStatus === 'active');
+  const getIsRented = (sn) => {
+    const computer = computers.find(c => c.sn === sn);
+    if (computer?.isSold || computer?.isLost) return false;
+    return orders.some(o => o.computerSn === sn && o._effectiveStatus === 'active');
+  };
 
   const handleAddComputer = async () => {
     if (!isCloudMode || !user) return alert("请先连接云端！");
     const existingSns = computers.map(c => c.sn).filter(sn => sn && sn.startsWith('A'));
     const maxNum = Math.max(0, ...existingSns.map(sn => parseInt(sn.substring(1)) || 0));
     // 创建时加入 purchaseDate 默认值
-    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'computers'), { sn: `A${String(maxNum + 1).padStart(2, '0')}`, cpu: '', gpu: '', ram: '', ssd: '', cost: 0, status: 'available', img1: '', img2: '', img3: '', img4: '', img5: '', img6: '', img7: '', img8: '', purchaseDate: new Date().toISOString().split('T')[0] });
+    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'computers'), { sn: `A${String(maxNum + 1).padStart(2, '0')}`, cpu: '', gpu: '', ram: '', ssd: '', cost: 0, status: 'available', isSold: false, salePrice: 0, isLost: false, img1: '', img2: '', img3: '', img4: '', img5: '', img6: '', img7: '', img8: '', purchaseDate: new Date().toISOString().split('T')[0] });
   };
 
-  const handleUpdateComputer = async (id, field, value) => { 
-      if (isCloudMode && user) await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'computers', id), { [field]: value }, { merge: true }); 
+  const handleUpdateComputer = async (id, field, value) => {
+      const updates = { [field]: value };
+      if (field === 'isSold' && value) {
+        updates.isLost = false;
+        updates.status = 'sold';
+      } else if (field === 'isLost' && value) {
+        updates.isSold = false;
+        updates.salePrice = 0;
+        updates.status = 'lost';
+      } else if ((field === 'isSold' || field === 'isLost') && !value) {
+        updates.status = 'available';
+      }
+      if (isCloudMode && user) await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'computers', id), updates, { merge: true }); 
   };
 
   const handleDeleteComputer = async (id, sn) => { 
@@ -1363,8 +1382,12 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId, onPrevi
   const sortedComputers = [...computers].sort((a, b) => (a.sn || "").localeCompare(b.sn || "", undefined, { numeric: true }));
   const filteredComputers = sortedComputers.filter(c => {
       const isRented = getIsRented(c.sn);
+      const isSold = c.isSold === true;
+      const isLost = c.isLost === true;
       if (compFilter === '在租' && !isRented) return false;
-      if (compFilter === '空闲' && isRented) return false;
+      if (compFilter === '空闲' && (isRented || isSold || isLost)) return false;
+      if (compFilter === '已售出' && !isSold) return false;
+      if (compFilter === '已丢失' && !isLost) return false;
       return true;
   });
 
@@ -1383,6 +1406,16 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId, onPrevi
   if (selectedComp) {
     const c = selectedComp;
     const isRented = getIsRented(c.sn);
+    const isSold = c.isSold === true;
+    const isLost = c.isLost === true;
+    const deviceStatus = isLost ? '已丢失' : isSold ? '已售出' : isRented ? '在租中' : '空闲';
+    const deviceStatusClass = isLost
+      ? 'bg-rose-500/20 text-rose-400'
+      : isSold
+        ? 'bg-amber-500/20 text-amber-400'
+        : isRented
+          ? 'bg-red-500/20 text-red-400'
+          : 'bg-emerald-500/20 text-emerald-400';
     let machineEarned = 0; 
     orders.filter(o => o.computerSn === c.sn).forEach(o => {
       machineEarned += o._dailyRate * Math.max(0, Math.min(o._el, o._totalDays));
@@ -1397,8 +1430,8 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId, onPrevi
           </button>
           <h2 className="text-xl md:text-2xl font-bold text-white flex items-center gap-3">
             {c.sn || '未命名'}
-            <span className={`px-2 py-1 rounded text-xs md:text-sm font-bold ${isRented ? 'bg-red-500/20 text-red-400' : 'bg-emerald-500/20 text-emerald-400'}`}>
-              {isRented ? '在租中' : '空闲'}
+            <span className={`px-2 py-1 rounded text-xs md:text-sm font-bold ${deviceStatusClass}`}>
+              {deviceStatus}
             </span>
           </h2>
         </div>
@@ -1420,6 +1453,32 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId, onPrevi
             
             <div className="flex items-center gap-2 md:gap-3"><span className="text-gray-500 w-14 shrink-0 text-xs md:text-sm">采购时间</span><input type="date" value={c.purchaseDate || ''} onChange={e=>handleUpdateComputer(c.id, 'purchaseDate', e.target.value)} className="flex-1 min-w-0 bg-[#2b2d33] text-white px-2 py-1.5 md:px-3 md:py-2 rounded outline-none text-xs md:text-sm" /></div>
             <div className="flex items-center gap-2 md:gap-3"><span className="text-gray-400 font-bold shrink-0 w-14 text-xs md:text-sm">成本</span><input type="number" value={c.cost || ''} onChange={e=>handleUpdateComputer(c.id, 'cost', e.target.value)} className="flex-1 min-w-0 bg-[#2b2d33] text-blue-400 font-bold px-2 py-1.5 md:px-3 md:py-2 rounded outline-none text-xs md:text-sm" /></div>
+          </div>
+
+          <div className="bg-[#1a1c20] p-4 md:p-6 rounded-lg border border-gray-700/70">
+            <div className="text-gray-400 text-sm font-bold mb-4">设备处置状态</div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <label className={`flex items-center gap-3 rounded-lg border p-3 cursor-pointer transition ${isSold ? 'border-amber-500/60 bg-amber-500/10' : 'border-gray-700 bg-[#22252b]'}`}>
+                <input type="checkbox" checked={isSold} onChange={e => handleUpdateComputer(c.id, 'isSold', e.target.checked)} className="w-4 h-4 accent-amber-500" />
+                <span className={isSold ? 'text-amber-400 font-bold' : 'text-gray-300'}>已售出（客户买断）</span>
+              </label>
+              <label className={`flex items-center gap-3 rounded-lg border p-3 cursor-pointer transition ${isLost ? 'border-rose-500/60 bg-rose-500/10' : 'border-gray-700 bg-[#22252b]'}`}>
+                <input type="checkbox" checked={isLost} onChange={e => handleUpdateComputer(c.id, 'isLost', e.target.checked)} className="w-4 h-4 accent-rose-500" />
+                <span className={isLost ? 'text-rose-400 font-bold' : 'text-gray-300'}>已丢失（被骗 / 无法追回）</span>
+              </label>
+            </div>
+            {isSold && (
+              <div className="mt-4 flex items-center gap-3">
+                <span className="text-gray-400 text-sm font-bold shrink-0">售出价格</span>
+                <div className="relative flex-1 max-w-xs">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-amber-500 font-bold">¥</span>
+                  <input type="number" min="0" step="0.01" value={c.salePrice ?? ''} onChange={e => handleUpdateComputer(c.id, 'salePrice', e.target.value)} className="w-full bg-[#2b2d33] text-amber-400 font-bold pl-8 pr-3 py-2 rounded outline-none border border-amber-500/30 focus:border-amber-500" placeholder="请输入买断金额" />
+                </div>
+              </div>
+            )}
+            {(isSold || isLost) && (
+              <p className="text-xs text-gray-500 mt-3">处置后的设备不会计入空闲或在租设备。</p>
+            )}
           </div>
 
           <div>
@@ -1508,7 +1567,7 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId, onPrevi
         <div className="flex items-center gap-4">
           <h2 className="text-xl md:text-2xl font-bold text-white">设备资产库</h2>
           <div className="bg-gray-800 p-1 rounded-lg flex space-x-1 text-sm">
-            {['全部', '在租', '空闲'].map(f => (
+            {['全部', '在租', '空闲', '已售出', '已丢失'].map(f => (
               <button key={f} onClick={() => setCompFilter(f)} className={`px-3 py-1 rounded-md transition ${compFilter === f ? 'bg-blue-600 text-white' : 'text-gray-400'}`}>{f}</button>
             ))}
           </div>
@@ -1542,6 +1601,8 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId, onPrevi
       <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 md:gap-6 items-start">
         {filteredComputers.map(c => {
            const isRented = getIsRented(c.sn);
+           const isSold = c.isSold === true;
+           const isLost = c.isLost === true;
            const costVal = Number(c.cost) || 0;
            
            let machineEarned = 0; 
@@ -1553,12 +1614,18 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId, onPrevi
              <div 
                key={c.id} 
                onClick={() => setSelectedId(c.id)}
-               className="bg-[#1e2024] rounded-xl border border-[#3c3f41] flex flex-col justify-between min-h-[7rem] h-auto cursor-pointer hover:border-gray-500 transition-all hover:scale-105 shadow-sm group p-3"
+               className={`bg-[#1e2024] rounded-xl border flex flex-col justify-between min-h-[8rem] h-auto cursor-pointer transition-all hover:scale-105 shadow-sm group p-3 ${isLost ? 'border-rose-500/50 hover:border-rose-400' : isSold ? 'border-amber-500/50 hover:border-amber-400' : 'border-[#3c3f41] hover:border-gray-500'}`}
              >
                <div className="flex-1 flex items-center justify-center gap-2 md:gap-3 transition-transform duration-300">
-                 <div className={`w-2 h-2 md:w-3 md:h-3 shrink-0 rounded-full ${isRented ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)] animate-pulse' : 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]'}`}></div>
+                 <div className={`w-2 h-2 md:w-3 md:h-3 shrink-0 rounded-full ${isLost ? 'bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.7)]' : isSold ? 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.7)]' : isRented ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)] animate-pulse' : 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]'}`}></div>
                  <span className="font-bold text-white group-hover:text-blue-400 transition-colors tracking-wider text-base md:text-xl truncate">{c.sn || '未命名'}</span>
                </div>
+
+               {(isSold || isLost) && (
+                 <div className={`mx-auto mb-2 px-2 py-1 rounded-md text-[10px] md:text-xs font-bold ${isLost ? 'bg-rose-500/15 text-rose-400' : 'bg-amber-500/15 text-amber-400'}`}>
+                   {isLost ? '已丢失' : `已售出 ¥${(Number(c.salePrice) || 0).toFixed(2)}`}
+                 </div>
+               )}
                
                <div className="w-full mt-auto pt-2 border-t border-[#333] opacity-80 group-hover:opacity-100 transition-opacity">
                  <div className="flex justify-end items-end text-[10px] mb-1 px-0.5">
