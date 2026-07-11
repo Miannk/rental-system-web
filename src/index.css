@@ -1,3 +1,55 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* 个性化主题层：保留业务状态色，只替换页面表面和主强调色 */
+.personalized-app {
+  background: var(--app-bg) !important;
+  color: var(--text-main);
+  transition: background-color .25s ease, color .25s ease;
+}
+
+.personalized-app [class~="bg-[#1e1e1e]"] { background-color: var(--app-bg) !important; }
+.personalized-app [class~="bg-[#1a1c20]"] { background-color: var(--sidebar-bg) !important; }
+.personalized-app [class~="bg-[#1e2024]"],
+.personalized-app [class~="bg-[#22252b]"] { background-color: var(--surface) !important; }
+.personalized-app [class~="bg-[#262930]"],
+.personalized-app [class~="bg-[#2b2d33]"],
+.personalized-app [class~="bg-[#2b2b2b]"] { background-color: var(--surface-alt) !important; }
+.personalized-app [class~="border-[#3c3f41]"],
+.personalized-app [class~="border-[#333842]"],
+.personalized-app [class~="border-[#333]"] { border-color: var(--theme-border) !important; }
+
+.personalized-app .bg-blue-600 { background-color: var(--accent) !important; }
+.personalized-app .bg-blue-600.bg-opacity-20 { background-color: color-mix(in srgb, var(--accent) 22%, transparent) !important; }
+.personalized-app .text-blue-400,
+.personalized-app .text-blue-500 { color: var(--accent) !important; }
+.personalized-app .border-blue-500,
+.personalized-app .focus\:border-blue-500:focus { border-color: var(--accent) !important; }
+.personalized-app .hover\:bg-blue-500:hover,
+.personalized-app .hover\:bg-blue-600:hover { background-color: color-mix(in srgb, var(--accent) 86%, white) !important; }
+
+.personalized-app[data-mode="light"] .text-white,
+.personalized-app[data-mode="light"] .text-gray-200,
+.personalized-app[data-mode="light"] .text-gray-300 { color: #172033 !important; }
+.personalized-app[data-mode="light"] .bg-blue-600.text-white,
+.personalized-app[data-mode="light"] .accent-control,
+.personalized-app[data-mode="light"] .theme-preview .text-white { color: #ffffff !important; }
+.personalized-app[data-mode="light"] .text-gray-400,
+.personalized-app[data-mode="light"] .text-gray-500 { color: #64748b !important; }
+.personalized-app[data-mode="light"] .bg-gray-800,
+.personalized-app[data-mode="light"] .bg-gray-900,
+.personalized-app[data-mode="light"] .bg-black,
+.personalized-app[data-mode="light"] [class~="bg-[#111214]"],
+.personalized-app[data-mode="light"] [class~="bg-[#111]"],
+.personalized-app[data-mode="light"] [class~="bg-[#0a0a0a]"],
+.personalized-app[data-mode="light"] [class~="bg-[#1c1c1c]"],
+.personalized-app[data-mode="light"] [class~="bg-[#141517]"] { background-color: #eef2f7 !important; }
+.personalized-app[data-mode="light"] .border-gray-700,
+.personalized-app[data-mode="light"] .border-gray-800 { border-color: #d9e0e8 !important; }
+.personalized-app[data-mode="light"] input,
+.personalized-app[data-mode="light"] select { color-scheme: light; }
+.personalized-app[data-mode="dark"] input,
+.personalized-app[data-mode="dark"] select { color-scheme: dark; }
+
+.settings-panel { color: var(--text-main); }
