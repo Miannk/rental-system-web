@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { ChevronDown, ChevronRight, Plus, Monitor, Trash2, CalendarDays, Phone, MapPin, User, Upload, CheckCircle, Search, ChevronLeft, RotateCcw, List, Maximize } from 'lucide-react';
+import { ChevronDown, ChevronRight, Plus, Monitor, Trash2, CalendarDays, Phone, MapPin, User, Upload, CheckCircle, Search, ChevronLeft, RotateCcw, List, Maximize, Settings, X, Palette } from 'lucide-react';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc, addDoc, writeBatch } from 'firebase/firestore';
@@ -41,20 +41,70 @@ if (isCloud) {
 }
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-rental-app';
 
+const DEFAULT_PREFERENCES = {
+  themePreset: 'deep-blue',
+  appearance: 'dark',
+  accent: '#3b82f6',
+  customerCardMode: 'standard',
+  equipmentCardMode: 'standard',
+  customerFields: { phone: true, deposit: true, daily: true, revenue: true, progress: true },
+  equipmentFields: { status: true, roi: true, specs: false },
+  defaultTab: 'rental',
+  defaultRentalFilter: '进行中',
+  defaultEquipmentFilter: '全部'
+};
+
+const THEME_PRESETS = {
+  'deep-blue': { name: '深海蓝', accent: '#3b82f6', bg: '#16191f', sidebar: '#171b23', surface: '#20252d', surfaceAlt: '#282e38', border: '#343c49' },
+  'black-gold': { name: '商务黑金', accent: '#d6a84b', bg: '#151412', sidebar: '#1b1915', surface: '#24211b', surfaceAlt: '#2d2921', border: '#49402e' },
+  'cyber-purple': { name: '赛博紫', accent: '#a855f7', bg: '#17131e', sidebar: '#1d1727', surface: '#282033', surfaceAlt: '#332840', border: '#4b3a5e' },
+  'forest-green': { name: '森林绿', accent: '#22a06b', bg: '#131a17', sidebar: '#17201c', surface: '#202b26', surfaceAlt: '#29362f', border: '#364a40' }
+};
+
+function loadPreferences() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('rental-personalization') || '{}');
+    return {
+      ...DEFAULT_PREFERENCES,
+      ...saved,
+      customerFields: { ...DEFAULT_PREFERENCES.customerFields, ...(saved.customerFields || {}) },
+      equipmentFields: { ...DEFAULT_PREFERENCES.equipmentFields, ...(saved.equipmentFields || {}) }
+    };
+  } catch {
+    return DEFAULT_PREFERENCES;
+  }
+}
+
 export default function App() {
+  const [preferences, setPreferences] = useState(loadPreferences);
+  const [draftPreferences, setDraftPreferences] = useState(preferences);
+  const [showSettings, setShowSettings] = useState(false);
+  const [systemIsDark, setSystemIsDark] = useState(() => window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? true);
   const [isCloudMode, setIsCloudMode] = useState(isCloud);
   const [user, setUser] = useState(isCloudMode ? null : { uid: 'local-demo-user' });
   const [orders, setOrders] = useState([]);
   const [computers, setComputers] = useState([]); 
-  const [filter, setFilter] = useState('进行中'); 
+  const [filter, setFilter] = useState(preferences.defaultRentalFilter || '进行中'); 
   const [searchQuery, setSearchQuery] = useState(''); 
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState("");
-  const [activeTab, setActiveTab] = useState('rental'); 
+  const [activeTab, setActiveTab] = useState(preferences.defaultTab || 'rental'); 
   const [customerSort, setCustomerSort] = useState('最新');
   const [selectedCustomerId, setSelectedCustomerId] = useState(null);
   const [highlightedOrderId, setHighlightedOrderId] = useState(null);
   const [previewImage, setPreviewImage] = useState(null);
+
+  useEffect(() => {
+    localStorage.setItem('rental-personalization', JSON.stringify(preferences));
+  }, [preferences]);
+
+  useEffect(() => {
+    const media = window.matchMedia?.('(prefers-color-scheme: dark)');
+    if (!media) return;
+    const onChange = (event) => setSystemIsDark(event.matches);
+    media.addEventListener?.('change', onChange);
+    return () => media.removeEventListener?.('change', onChange);
+  }, []);
 
   useEffect(() => {
     if (!isCloudMode) return;
@@ -558,9 +608,22 @@ export default function App() {
     if (selectedCustomerId === customerId) setSelectedCustomerId(null);
   };
 
+  const resolvedAppearance = preferences.appearance === 'system' ? (systemIsDark ? 'dark' : 'light') : preferences.appearance;
+  const activePreset = THEME_PRESETS[preferences.themePreset] || THEME_PRESETS['deep-blue'];
+  const themeStyle = {
+    '--accent': preferences.accent || activePreset.accent,
+    '--app-bg': resolvedAppearance === 'light' ? '#eef2f7' : activePreset.bg,
+    '--sidebar-bg': resolvedAppearance === 'light' ? '#ffffff' : activePreset.sidebar,
+    '--surface': resolvedAppearance === 'light' ? '#ffffff' : activePreset.surface,
+    '--surface-alt': resolvedAppearance === 'light' ? '#f5f7fa' : activePreset.surfaceAlt,
+    '--theme-border': resolvedAppearance === 'light' ? '#d9e0e8' : activePreset.border,
+    '--text-main': resolvedAppearance === 'light' ? '#172033' : '#e5e7eb',
+    '--text-muted': resolvedAppearance === 'light' ? '#64748b' : '#9ca3af'
+  };
+
   if (loading || errorMsg) {
     return (
-      <div className="min-h-screen bg-[#1e1e1e] flex flex-col items-center justify-center text-white p-6 font-sans">
+      <div className="personalized-app min-h-screen bg-[#1e1e1e] flex flex-col items-center justify-center text-white p-6 font-sans" data-mode={resolvedAppearance} style={themeStyle}>
         <div className="flex items-center space-x-3 animate-pulse text-xl"><Monitor className="text-blue-500" size={28} /><span>{errorMsg || "系统与云端数据连接中..."}</span></div>
         {errorMsg && !errorMsg.includes("写入") && (<button onClick={() => window.location.reload()} className="mt-6 px-8 py-2 bg-blue-600 rounded-lg font-bold">重新连接</button>)}
       </div>
@@ -575,7 +638,7 @@ export default function App() {
   ];
 
   return (
-    <div className="min-h-screen bg-[#1e1e1e] text-gray-200 font-sans flex flex-col md:flex-row pb-16 md:pb-0 relative">
+    <div className="personalized-app min-h-screen bg-[#1e1e1e] text-gray-200 font-sans flex flex-col md:flex-row pb-16 md:pb-0 relative" data-mode={resolvedAppearance} style={themeStyle}>
       <style>{`
         #csb-open-sandbox, .csb-open-sandbox, div[id^="csb-"], a[href*="codesandbox.io/p/devbox"] { 
           display: none !important; opacity: 0 !important; pointer-events: none !important; visibility: hidden !important; z-index: -9999 !important;
@@ -595,6 +658,9 @@ export default function App() {
             </button>
           ))}
         </nav>
+        <button onClick={() => { setDraftPreferences(preferences); setShowSettings(true); }} className="w-full flex items-center gap-2 px-4 py-3 rounded-lg text-gray-400 hover:bg-gray-800 hover:text-white transition font-medium">
+          <Settings size={17} /> 个性化设置
+        </button>
       </div>
 
       <div className="flex-1 flex flex-col p-4 md:p-8 overflow-y-auto">
@@ -681,9 +747,9 @@ export default function App() {
                     {searchQuery ? "没有搜到相关订单哦~" : "当前没有数据，或者筛选分类下为空。"}
                   </div>
                 ) : (
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 items-start">
+                  <div className={`grid gap-4 items-start ${preferences.customerCardMode === 'compact' ? 'grid-cols-2 md:grid-cols-4 xl:grid-cols-5' : preferences.customerCardMode === 'detailed' ? 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3' : 'grid-cols-2 md:grid-cols-3 lg:grid-cols-4'}`}>
                     {sortedCustomerEntries.map(([cid, data]) => (
-                      <CustomerCard key={cid} cid={cid} data={data} onSelect={setSelectedCustomerId} />
+                      <CustomerCard key={cid} cid={cid} data={data} onSelect={setSelectedCustomerId} preferences={preferences} />
                     ))}
                   </div>
                 )}
@@ -693,7 +759,7 @@ export default function App() {
         ) : activeTab === 'home' ? (
           <HomeTab orders={processedOrders} onJump={(id) => { setHighlightedOrderId(id); setActiveTab('rental'); }} onQuickRenew={handleQuickRenew} />
         ) : activeTab === 'equipment' ? (
-          <EquipmentTab computers={computers} orders={processedOrders} isCloudMode={isCloudMode} user={user} db={db} appId={appId} onPreviewImage={setPreviewImage} />
+          <EquipmentTab computers={computers} orders={processedOrders} isCloudMode={isCloudMode} user={user} db={db} appId={appId} onPreviewImage={setPreviewImage} preferences={preferences} />
         ) : activeTab === 'calendar' ? (
           <CalendarTab orders={processedOrders} />
         ) : null}
@@ -708,6 +774,20 @@ export default function App() {
         ))}
       </div>
 
+      <button onClick={() => { setDraftPreferences(preferences); setShowSettings(true); }} className="md:hidden fixed top-3 right-3 z-[99990] p-2.5 rounded-full bg-[#22252b] text-gray-300 border border-gray-700 shadow-lg" aria-label="个性化设置">
+        <Settings size={18} />
+      </button>
+
+      {showSettings && (
+        <PersonalizationPanel
+          value={draftPreferences}
+          onChange={setDraftPreferences}
+          onClose={() => setShowSettings(false)}
+          onSave={() => { setPreferences(draftPreferences); setShowSettings(false); }}
+          onReset={() => setDraftPreferences(DEFAULT_PREFERENCES)}
+        />
+      )}
+
       {/* 图片全屏预览组件 */}
       {previewImage && (
         <div className="fixed inset-0 z-[999999] bg-black/90 flex items-center justify-center p-4 backdrop-blur-sm transition-opacity" onClick={() => setPreviewImage(null)}>
@@ -721,6 +801,93 @@ export default function App() {
   );
 }
 
+function PersonalizationPanel({ value, onChange, onClose, onSave, onReset }) {
+  const setField = (field, nextValue) => onChange(prev => ({ ...prev, [field]: nextValue }));
+  const setNested = (group, field, nextValue) => onChange(prev => ({ ...prev, [group]: { ...prev[group], [field]: nextValue } }));
+  const cardModes = [{ id: 'compact', label: '紧凑' }, { id: 'standard', label: '标准' }, { id: 'detailed', label: '详细' }];
+
+  return (
+    <div className="fixed inset-0 z-[999999] bg-black/70 backdrop-blur-sm flex items-end md:items-center justify-center md:p-6" onClick={onClose}>
+      <div className="settings-panel w-full md:max-w-4xl max-h-[92vh] bg-[#1a1c20] border border-gray-700 rounded-t-2xl md:rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 md:px-6 py-4 border-b border-gray-700 bg-[#22252b]">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center text-white" style={{ backgroundColor: value.accent }}><Palette size={19} /></div>
+            <div><h2 className="text-white font-bold text-lg">个性化设置</h2><p className="text-gray-500 text-xs">设置仅保存在当前浏览器</p></div>
+          </div>
+          <button onClick={onClose} className="p-2 rounded-lg text-gray-400 hover:bg-gray-700 hover:text-white"><X size={20}/></button>
+        </div>
+
+        <div className="overflow-y-auto max-h-[calc(92vh-132px)] p-5 md:p-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <section className="space-y-4">
+            <h3 className="text-white font-bold">主题外观</h3>
+            <div className="grid grid-cols-2 gap-3">
+              {Object.entries(THEME_PRESETS).map(([id, theme]) => (
+                <button key={id} onClick={() => onChange(prev => ({ ...prev, themePreset: id, accent: theme.accent }))} className={`theme-preview rounded-xl border p-3 text-left transition ${value.themePreset === id ? 'border-white/60 ring-2 ring-white/10' : 'border-gray-700 hover:border-gray-500'}`} style={{ background: `linear-gradient(135deg, ${theme.surface}, ${theme.bg})` }}>
+                  <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full" style={{backgroundColor: theme.accent}}></span><span className="text-white text-sm font-bold">{theme.name}</span></div>
+                  <div className="flex gap-1 mt-3"><span className="h-2 flex-1 rounded" style={{backgroundColor: theme.sidebar}}></span><span className="h-2 flex-1 rounded" style={{backgroundColor: theme.surfaceAlt}}></span><span className="h-2 w-8 rounded" style={{backgroundColor: theme.accent}}></span></div>
+                </button>
+              ))}
+            </div>
+            <div>
+              <label className="text-gray-400 text-xs font-bold block mb-2">显示模式</label>
+              <div className="grid grid-cols-3 gap-2">
+                {[['dark','深色'],['light','浅色'],['system','跟随系统']].map(([id,label]) => <button key={id} onClick={() => setField('appearance', id)} className={`px-3 py-2 rounded-lg text-xs font-bold border transition ${value.appearance === id ? 'accent-control text-white border-transparent' : 'text-gray-400 border-gray-700'}`} style={value.appearance === id ? {backgroundColor:value.accent} : undefined}>{label}</button>)}
+              </div>
+            </div>
+            <div>
+              <label className="text-gray-400 text-xs font-bold block mb-2">自定义强调色</label>
+              <div className="flex items-center gap-3 bg-[#22252b] border border-gray-700 rounded-xl p-3">
+                <input type="color" value={value.accent} onChange={e => setField('accent', e.target.value)} className="w-10 h-10 rounded-lg bg-transparent cursor-pointer" />
+                <span className="text-white font-mono text-sm uppercase">{value.accent}</span>
+                <div className="ml-auto flex gap-2">{['#3b82f6','#a855f7','#d6a84b','#22a06b','#f97316'].map(color => <button key={color} onClick={() => setField('accent', color)} className="w-6 h-6 rounded-full border-2 border-white/20" style={{backgroundColor:color}} aria-label={`选择颜色 ${color}`}></button>)}</div>
+              </div>
+            </div>
+          </section>
+
+          <section className="space-y-5">
+            <h3 className="text-white font-bold">卡片显示</h3>
+            <CardModeSetting title="客户卡片模式" value={value.customerCardMode} modes={cardModes} accent={value.accent} onChange={v => setField('customerCardMode', v)} />
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              {[['phone','电话'],['deposit','押金'],['daily','日租'],['revenue','收益/已收'],['progress','到期进度']].map(([id,label]) => <PreferenceToggle key={id} label={label} checked={value.customerFields[id]} accent={value.accent} onChange={v => setNested('customerFields', id, v)} />)}
+            </div>
+            <CardModeSetting title="设备卡片模式" value={value.equipmentCardMode} modes={cardModes} accent={value.accent} onChange={v => setField('equipmentCardMode', v)} />
+            <div className="grid grid-cols-3 gap-2">
+              {[['status','状态'],['roi','回本进度'],['specs','配置参数']].map(([id,label]) => <PreferenceToggle key={id} label={label} checked={value.equipmentFields[id]} accent={value.accent} onChange={v => setNested('equipmentFields', id, v)} />)}
+            </div>
+          </section>
+
+          <section className="lg:col-span-2 space-y-4 border-t border-gray-700 pt-5">
+            <h3 className="text-white font-bold">启动默认项</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <SelectSetting label="默认打开页面" value={value.defaultTab} onChange={v => setField('defaultTab', v)} options={[['home','近期待办'],['equipment','设备资料'],['rental','实时租赁'],['calendar','收益热力图']]} />
+              <SelectSetting label="租赁默认筛选" value={value.defaultRentalFilter} onChange={v => setField('defaultRentalFilter', v)} options={['全部','进行中','已超期','已结单'].map(v => [v,v])} />
+              <SelectSetting label="设备默认筛选" value={value.defaultEquipmentFilter} onChange={v => setField('defaultEquipmentFilter', v)} options={['全部','在租','空闲','已售出','已丢失'].map(v => [v,v])} />
+            </div>
+            <p className="text-gray-500 text-xs">默认页面和默认筛选会在下次打开系统时生效。</p>
+          </section>
+        </div>
+
+        <div className="px-5 md:px-6 py-4 border-t border-gray-700 bg-[#22252b] flex items-center justify-between gap-3">
+          <button onClick={onReset} className="flex items-center gap-2 px-4 py-2 text-gray-400 hover:text-white text-sm"><RotateCcw size={15}/>恢复默认</button>
+          <div className="flex gap-2"><button onClick={onClose} className="px-4 py-2 rounded-lg border border-gray-700 text-gray-300 text-sm">取消</button><button onClick={onSave} className="accent-control px-5 py-2 rounded-lg text-white font-bold text-sm" style={{backgroundColor:value.accent}}>保存设置</button></div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CardModeSetting({ title, value, modes, accent, onChange }) {
+  return <div><label className="text-gray-400 text-xs font-bold block mb-2">{title}</label><div className="grid grid-cols-3 gap-2">{modes.map(mode => <button key={mode.id} onClick={() => onChange(mode.id)} className={`px-3 py-2 rounded-lg border text-xs font-bold ${value === mode.id ? 'accent-control text-white border-transparent' : 'text-gray-400 border-gray-700'}`} style={value === mode.id ? {backgroundColor:accent} : undefined}>{mode.label}</button>)}</div></div>;
+}
+
+function PreferenceToggle({ label, checked, accent, onChange }) {
+  return <label className="flex items-center justify-between gap-2 px-3 py-2.5 rounded-lg bg-[#22252b] border border-gray-700 cursor-pointer text-xs text-gray-300"><span>{label}</span><input type="checkbox" checked={checked} onChange={e => onChange(e.target.checked)} className="sr-only"/><span className="w-8 h-4 rounded-full relative transition" style={{backgroundColor: checked ? accent : '#4b5563'}}><span className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${checked ? 'left-[18px]' : 'left-0.5'}`}></span></span></label>;
+}
+
+function SelectSetting({ label, value, onChange, options }) {
+  return <label className="text-gray-400 text-xs font-bold"><span className="block mb-2">{label}</span><select value={value} onChange={e => onChange(e.target.value)} className="w-full bg-[#22252b] text-white border border-gray-700 rounded-lg px-3 py-2.5 outline-none">{options.map(([id,name]) => <option key={id} value={id}>{name}</option>)}</select></label>;
+}
+
 function KpiCard({ title, value, color = "text-white", className = "" }) {
   return (
     <div className={`bg-[#22252b] rounded-xl p-4 border border-gray-800 flex flex-col items-center justify-center shadow-sm ${className}`}>
@@ -730,7 +897,7 @@ function KpiCard({ title, value, color = "text-white", className = "" }) {
   );
 }
 
-function CustomerCard({ cid, data, onSelect }) {
+function CustomerCard({ cid, data, onSelect, preferences }) {
   let activeCount = 0, overdueCount = 0, tDaily = 0, tAcc = 0, tPaid = 0;
   let fastestRemD = Infinity;
   let fastestRatio = 0;
@@ -763,34 +930,42 @@ function CustomerCard({ cid, data, onSelect }) {
       : <div className="text-[10px] font-bold px-2 py-1 rounded shrink-0 bg-gray-700 text-gray-400 whitespace-nowrap">空闲</div>;
 
   const barColor = fastestRemD < 3 ? "bg-red-500" : "bg-emerald-500";
+  const fields = preferences?.customerFields || DEFAULT_PREFERENCES.customerFields;
+  const mode = preferences?.customerCardMode || 'standard';
 
   return (
-    <div onClick={() => onSelect(cid)} className="bg-[#1e2024] rounded-xl border border-[#3c3f41] p-4 cursor-pointer hover:border-gray-500 transition-all hover:scale-105 shadow-sm group relative flex flex-col min-h-[10rem] h-auto">
+    <div onClick={() => onSelect(cid)} className={`bg-[#1e2024] rounded-xl border border-[#3c3f41] cursor-pointer hover:border-gray-500 transition-all hover:-translate-y-0.5 shadow-sm group relative flex flex-col h-auto ${mode === 'compact' ? 'p-3 min-h-[7.5rem]' : mode === 'detailed' ? 'p-5 min-h-[12rem]' : 'p-4 min-h-[10rem]'}`}>
       <div className="flex-1">
          <div className="flex justify-between items-start mb-2">
             <div className="font-bold text-white text-lg truncate pr-2 group-hover:text-blue-400 transition-colors">{data.name || '未命名客户'}</div>
             {statusTag}
          </div>
          <div className="flex items-center justify-between gap-2 mb-3">
-           <div className="text-gray-400 text-xs flex items-center gap-1 min-w-0 truncate"><Phone size={12} className="shrink-0"/>{data.phone || '无电话'}</div>
-           <div className="text-blue-400 text-xs font-bold whitespace-nowrap">押金 ¥{(Number(data.deposit) || 0).toFixed(2)}</div>
+           {fields.phone && <div className="text-gray-400 text-xs flex items-center gap-1 min-w-0 truncate"><Phone size={12} className="shrink-0"/>{data.phone || '无电话'}</div>}
+           {fields.deposit && <div className="text-blue-400 text-xs font-bold whitespace-nowrap">押金 ¥{(Number(data.deposit) || 0).toFixed(2)}</div>}
          </div>
+         {mode === 'detailed' && (
+           <div className="space-y-1 mb-3 text-[11px] text-gray-500">
+             <div className="truncate">地址：{data.address || '未填写'}</div>
+             <div className="truncate">备注：{data.remark || '无'}</div>
+           </div>
+         )}
       </div>
       
-      <div className="flex justify-between items-end border-t border-[#333] pt-2 mb-2">
-         <div className="flex-shrink-0">
+      {(fields.daily || fields.revenue) && <div className="flex justify-between items-end border-t border-[#333] pt-2 mb-2">
+         {fields.daily && <div className="flex-shrink-0">
             <div className="text-gray-500 text-[10px] mb-0.5 whitespace-nowrap">日租</div>
             <div className="text-orange-500 font-bold text-xs sm:text-sm whitespace-nowrap">¥{tDaily.toFixed(1)}</div>
-         </div>
-         <div className="text-right flex-shrink-0 ml-2">
+         </div>}
+         {fields.revenue && <div className="text-right flex-shrink-0 ml-2">
             <div className="text-gray-500 text-[10px] mb-0.5 whitespace-nowrap overflow-hidden text-ellipsis">累计收益 / 已收</div>
             <div className="text-emerald-500 font-bold text-xs sm:text-sm tracking-tight whitespace-nowrap">
                ¥{tAcc.toFixed(1)} <span className="text-gray-500 text-[10px] sm:text-[11px] font-normal tracking-normal ml-0.5">/{tPaid.toFixed(1)}</span>
             </div>
-         </div>
-      </div>
+         </div>}
+      </div>}
 
-      {activeCount > 0 && (
+      {fields.progress && activeCount > 0 && (
          <div className="w-full mt-auto pt-1">
             <div className="flex justify-between text-[9px] text-gray-500 mb-1 font-bold">
                <span>最快到期进度</span>
@@ -1352,9 +1527,9 @@ function ImageUploadSlot({ label, image, onUpload, onRemove, onPreview }) {
   );
 }
 
-function EquipmentTab({ computers, orders, isCloudMode, user, db, appId, onPreviewImage }) {
+function EquipmentTab({ computers, orders, isCloudMode, user, db, appId, onPreviewImage, preferences }) {
   const [selectedId, setSelectedId] = useState(null);
-  const [compFilter, setCompFilter] = useState('全部');
+  const [compFilter, setCompFilter] = useState(preferences?.defaultEquipmentFilter || '全部');
 
   const getIsRented = (sn) => {
     const computer = computers.find(c => c.sn === sn);
@@ -1618,12 +1793,14 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId, onPrevi
         </div>
       </div>
 
-      <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 md:gap-6 items-start">
+      <div className={`grid gap-3 md:gap-6 items-start ${preferences?.equipmentCardMode === 'compact' ? 'grid-cols-3 md:grid-cols-5 xl:grid-cols-7' : preferences?.equipmentCardMode === 'detailed' ? 'grid-cols-2 md:grid-cols-3 xl:grid-cols-4' : 'grid-cols-3 md:grid-cols-4 lg:grid-cols-5'}`}>
         {filteredComputers.map(c => {
            const isRented = getIsRented(c.sn);
            const isSold = c.isSold === true;
            const isLost = c.isLost === true;
            const costVal = Number(c.cost) || 0;
+           const equipmentFields = preferences?.equipmentFields || DEFAULT_PREFERENCES.equipmentFields;
+           const equipmentMode = preferences?.equipmentCardMode || 'standard';
            
            let machineEarned = 0; 
            orders.filter(o => o.computerSn === c.sn).forEach(o => {
@@ -1634,27 +1811,35 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId, onPrevi
              <div 
                key={c.id} 
                onClick={() => setSelectedId(c.id)}
-               className={`bg-[#1e2024] rounded-xl border flex flex-col justify-between min-h-[8rem] h-auto cursor-pointer transition-all hover:scale-105 shadow-sm group p-3 ${isLost ? 'border-rose-500/50 hover:border-rose-400' : isSold ? 'border-amber-500/50 hover:border-amber-400' : 'border-[#3c3f41] hover:border-gray-500'}`}
+               className={`bg-[#1e2024] rounded-xl border flex flex-col justify-between h-auto cursor-pointer transition-all hover:-translate-y-0.5 shadow-sm group ${equipmentMode === 'compact' ? 'p-2 min-h-[6.5rem]' : equipmentMode === 'detailed' ? 'p-4 min-h-[11rem]' : 'p-3 min-h-[8rem]'} ${isLost ? 'border-rose-500/50 hover:border-rose-400' : isSold ? 'border-amber-500/50 hover:border-amber-400' : 'border-[#3c3f41] hover:border-gray-500'}`}
              >
                <div className="flex-1 flex items-center justify-center gap-2 md:gap-3 transition-transform duration-300">
-                 <div className={`w-2 h-2 md:w-3 md:h-3 shrink-0 rounded-full ${isLost ? 'bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.7)]' : isSold ? 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.7)]' : isRented ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)] animate-pulse' : 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]'}`}></div>
+                 {equipmentFields.status && <div className={`w-2 h-2 md:w-3 md:h-3 shrink-0 rounded-full ${isLost ? 'bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.7)]' : isSold ? 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.7)]' : isRented ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)] animate-pulse' : 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]'}`}></div>}
                  <span className="font-bold text-white group-hover:text-blue-400 transition-colors tracking-wider text-base md:text-xl truncate">{c.sn || '未命名'}</span>
                </div>
 
-               {(isSold || isLost) && (
+               {equipmentFields.status && (isSold || isLost) && (
                  <div className={`mx-auto mb-2 px-2 py-1 rounded-md text-[10px] md:text-xs font-bold ${isLost ? 'bg-rose-500/15 text-rose-400' : 'bg-amber-500/15 text-amber-400'}`}>
                    {isLost ? '已丢失' : `已售出 ¥${(Number(c.salePrice) || 0).toFixed(2)}`}
                  </div>
                )}
+
+               {equipmentMode === 'detailed' && equipmentFields.specs && (
+                 <div className="text-[10px] text-gray-500 space-y-1 mb-2">
+                   <div className="truncate">CPU：{c.cpu || '-'}</div>
+                   <div className="truncate">显卡：{c.gpu || '-'}</div>
+                   <div className="truncate">内存：{c.ram || '-'}</div>
+                 </div>
+               )}
                
-               <div className="w-full mt-auto pt-2 border-t border-[#333] opacity-80 group-hover:opacity-100 transition-opacity">
+               {equipmentFields.roi && <div className="w-full mt-auto pt-2 border-t border-[#333] opacity-80 group-hover:opacity-100 transition-opacity">
                  <div className="flex justify-end items-end text-[10px] mb-1 px-0.5">
                     <span className="text-gray-500 scale-90 origin-right"><span className={machineEarned >= costVal ? "text-emerald-500" : "text-red-500"}>{machineEarned.toFixed(0)}</span> / {costVal.toFixed(0)}</span>
                  </div>
                  <div className="w-full bg-gray-800 h-1 rounded-full overflow-hidden">
                    <div className={`h-full ${machineEarned >= costVal ? 'bg-emerald-500' : 'bg-red-500'}`} style={{ width: `${Math.min((machineEarned / (costVal || 1)) * 100, 100)}%` }}></div>
                  </div>
-               </div>
+               </div>}
              </div>
            );
         })}
