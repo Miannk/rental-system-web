@@ -1530,6 +1530,7 @@ function ImageUploadSlot({ label, image, onUpload, onRemove, onPreview }) {
 function EquipmentTab({ computers, orders, isCloudMode, user, db, appId, onPreviewImage, preferences }) {
   const [selectedId, setSelectedId] = useState(null);
   const [compFilter, setCompFilter] = useState(preferences?.defaultEquipmentFilter || '全部');
+  const [equipmentSearch, setEquipmentSearch] = useState('');
 
   const getIsRented = (sn) => {
     const computer = computers.find(c => c.sn === sn);
@@ -1572,6 +1573,8 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId, onPrevi
       const isRented = getIsRented(c.sn);
       const isSold = c.isSold === true;
       const isLost = c.isLost === true;
+      const query = equipmentSearch.trim().toLowerCase();
+      if (query && ![c.sn, c.cpu, c.gpu].some(value => String(value || '').toLowerCase().includes(query))) return false;
       if (compFilter === '在租' && !isRented) return false;
       if (compFilter === '空闲' && (isRented || isSold || isLost)) return false;
       if (compFilter === '已售出' && !isSold) return false;
@@ -1765,6 +1768,22 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId, onPrevi
         <button onClick={handleAddComputer} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl font-bold shadow-lg shadow-blue-500/20 flex items-center gap-2 transition-transform active:scale-95"><Plus size={18} /> 新增空闲设备</button>
       </div>
 
+      <div className="relative w-full mb-6">
+        <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+        <input
+          type="text"
+          value={equipmentSearch}
+          onChange={e => setEquipmentSearch(e.target.value)}
+          placeholder="搜索设备编号、CPU 或显卡，例如：A02、i5-12400、RTX 3060"
+          className="w-full pl-11 pr-11 py-3 bg-[#111214] text-white rounded-xl border border-gray-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none text-sm md:text-base transition-all shadow-inner"
+        />
+        {equipmentSearch && (
+          <button onClick={() => setEquipmentSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white bg-gray-700 rounded-full p-1 transition" aria-label="清空设备搜索">
+            <X size={14} />
+          </button>
+        )}
+      </div>
+
       <div className="bg-[#22252b] rounded-xl p-6 mb-6 border border-gray-800 flex flex-col md:flex-row items-center gap-6 shadow-sm">
         <div
           className="relative w-24 h-24 flex items-center justify-center shrink-0 rounded-full"
@@ -1806,6 +1825,11 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId, onPrevi
            orders.filter(o => o.computerSn === c.sn).forEach(o => {
              machineEarned += o._dailyRate * Math.max(0, Math.min(o._el, o._totalDays));
            });
+           const currentDailyRent = (!isSold && !isLost)
+             ? orders
+                 .filter(o => o.computerSn === c.sn && o._effectiveStatus === 'active' && o._remD >= 0)
+                 .reduce((sum, o) => sum + (Number(o._dailyRate) || 0), 0)
+             : 0;
 
            return (
              <div 
@@ -1832,18 +1856,24 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId, onPrevi
                  </div>
                )}
                
-               {equipmentFields.roi && <div className="w-full mt-auto pt-2 border-t border-[#333] opacity-80 group-hover:opacity-100 transition-opacity">
-                 <div className="flex justify-end items-end text-[10px] mb-1 px-0.5">
-                    <span className="text-gray-500 scale-90 origin-right"><span className={machineEarned >= costVal ? "text-emerald-500" : "text-red-500"}>{machineEarned.toFixed(0)}</span> / {costVal.toFixed(0)}</span>
+               {(equipmentFields.roi || (!isSold && !isLost)) && <div className="w-full mt-auto pt-2 border-t border-[#333] opacity-80 group-hover:opacity-100 transition-opacity">
+                 <div className={`flex items-end text-[10px] mb-1 px-0.5 ${isSold || isLost ? 'justify-end' : 'justify-between'}`}>
+                    {!isSold && !isLost && <span className="text-orange-500 font-bold whitespace-nowrap">日租 ¥{currentDailyRent.toFixed(2)}</span>}
+                    {equipmentFields.roi && <span className="text-gray-500 scale-90 origin-right"><span className={machineEarned >= costVal ? "text-emerald-500" : "text-red-500"}>{machineEarned.toFixed(0)}</span> / {costVal.toFixed(0)}</span>}
                  </div>
-                 <div className="w-full bg-gray-800 h-1 rounded-full overflow-hidden">
+                 {equipmentFields.roi && <div className="w-full bg-gray-800 h-1 rounded-full overflow-hidden">
                    <div className={`h-full ${machineEarned >= costVal ? 'bg-emerald-500' : 'bg-red-500'}`} style={{ width: `${Math.min((machineEarned / (costVal || 1)) * 100, 100)}%` }}></div>
-                 </div>
+                 </div>}
                </div>}
              </div>
            );
         })}
       </div>
+      {filteredComputers.length === 0 && (
+        <div className="text-center text-gray-500 py-16 bg-[#22252b] rounded-xl border border-gray-800">
+          {equipmentSearch ? `没有找到与“${equipmentSearch}”匹配的设备` : '当前筛选条件下没有设备'}
+        </div>
+      )}
     </div>
   );
 }
