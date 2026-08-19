@@ -1856,9 +1856,9 @@ function EquipmentTab({ computers, orders, isCloudMode, user, db, appId, onPrevi
                  </div>
                )}
                
-               {(equipmentFields.roi || (!isSold && !isLost)) && <div className="w-full mt-auto pt-2 border-t border-[#333] opacity-80 group-hover:opacity-100 transition-opacity">
-                 <div className={`flex items-end text-[10px] mb-1 px-0.5 ${isSold || isLost ? 'justify-end' : 'justify-between'}`}>
-                    {!isSold && !isLost && <span className="text-orange-500 font-bold whitespace-nowrap">日租 ¥{currentDailyRent.toFixed(2)}</span>}
+               {(equipmentFields.roi || currentDailyRent > 0) && <div className="w-full mt-auto pt-2 border-t border-[#333] opacity-80 group-hover:opacity-100 transition-opacity">
+                 <div className={`flex items-end text-[10px] mb-1 px-0.5 ${currentDailyRent > 0 ? 'justify-between' : 'justify-end'}`}>
+                    {currentDailyRent > 0 && <span className="text-orange-500 font-bold scale-90 origin-left">{currentDailyRent.toFixed(0)}</span>}
                     {equipmentFields.roi && <span className="text-gray-500 scale-90 origin-right"><span className={machineEarned >= costVal ? "text-emerald-500" : "text-red-500"}>{machineEarned.toFixed(0)}</span> / {costVal.toFixed(0)}</span>}
                  </div>
                  {equipmentFields.roi && <div className="w-full bg-gray-800 h-1 rounded-full overflow-hidden">
